@@ -1,9 +1,10 @@
 // app/contract.ts
 
-// BURAYA YENİ ADRESİ YAPIŞTIR
+// SENİN KULLANDIĞIN GÜNCEL KONTRAT ADRESİ:
 export const CONTRACT_ADDRESS = "0x0D71ae8901a86Df22993b02e3C640cF93C25ddD8";
 
 export const CONTRACT_ABI = [
+  // --- FONKSİYONLAR ---
   {
     "inputs": [
       {"internalType": "string", "name": "name", "type": "string"},
@@ -20,7 +21,7 @@ export const CONTRACT_ABI = [
   },
   {
     "inputs": [{"internalType": "address", "name": "", "type": "address"}],
-    "name": "tokenMetadata", 
+    "name": "tokenMetadata",
     "outputs": [
       {"internalType": "string", "name": "description", "type": "string"},
       {"internalType": "string", "name": "twitter", "type": "string"},
@@ -80,5 +81,41 @@ export const CONTRACT_ABI = [
     "outputs": [{"internalType": "string", "name": "", "type": "string"}],
     "stateMutability": "view",
     "type": "function"
+  },
+
+  // --- EKSİK OLAN "EVENT" TANIMLARI (BUNLAR OLMADAN GRAFİK ÇALIŞMAZ) ---
+  {
+    "anonymous": false,
+    "inputs": [
+      { "indexed": true, "internalType": "address", "name": "token", "type": "address" },
+      { "indexed": true, "internalType": "address", "name": "buyer", "type": "address" },
+      { "indexed": false, "internalType": "uint256", "name": "amountMATIC", "type": "uint256" },
+      { "indexed": false, "internalType": "uint256", "name": "amountTokens", "type": "uint256" }
+    ],
+    "name": "Buy",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      { "indexed": true, "internalType": "address", "name": "token", "type": "address" },
+      { "indexed": true, "internalType": "address", "name": "seller", "type": "address" },
+      { "indexed": false, "internalType": "uint256", "name": "amountTokens", "type": "uint256" },
+      { "indexed": false, "internalType": "uint256", "name": "amountMATIC", "type": "uint256" },
+      { "indexed": false, "internalType": "uint256", "name": "feePaid", "type": "uint256" }
+    ],
+    "name": "Sell",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      { "indexed": true, "internalType": "address", "name": "token", "type": "address" },
+      { "indexed": false, "internalType": "string", "name": "name", "type": "string" },
+      { "indexed": false, "internalType": "string", "name": "symbol", "type": "string" },
+      { "indexed": true, "internalType": "address", "name": "creator", "type": "address" }
+    ],
+    "name": "TokenCreated",
+    "type": "event"
   }
 ] as const;
