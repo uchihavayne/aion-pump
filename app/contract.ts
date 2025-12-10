@@ -1,5 +1,5 @@
 // app/contract.ts
-export const CONTRACT_ADDRESS = "0x74E7827423B4d88aFd3af705829D13A5b77d4e16";
+export const CONTRACT_ADDRESS = "0x1CdF04d7E171B861463564Faf927519AaF78CE50";
 
 export const CONTRACT_ABI = [
   {
