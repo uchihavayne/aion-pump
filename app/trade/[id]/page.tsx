@@ -4,8 +4,9 @@ import { useState, use, useEffect } from "react";
 import { ArrowLeft, Twitter, Globe, Send, Copy, Coins, TrendingUp, MessageSquare, User, Activity, ExternalLink } from "lucide-react";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import Link from "next/link";
-import { useWriteContract, useWaitForTransactionReceipt, useReadContract, useWatchContractEvent, useAccount } from "wagmi"; 
-import { parseEther, formatEther } from "viem";
+// Wagmi & Viem
+import { useWriteContract, useWaitForTransactionReceipt, useReadContract, useWatchContractEvent, useAccount, usePublicClient } from "wagmi"; 
+import { parseEther, formatEther, erc20Abi } from "viem"; // erc20Abi standart bakiyeleri okumak için şart
 import { CONTRACT_ADDRESS, CONTRACT_ABI } from "../../contract"; 
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import toast, { Toaster } from 'react-hot-toast';
@@ -40,6 +41,7 @@ const Candlestick = (props: any) => {
 export default function TradePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const tokenAddress = id as `0x${string}`;
+  const publicClient = usePublicClient(); // Geçmiş verileri çekmek için
 
   const [activeTab, setActiveTab] = useState<"buy" | "sell">("buy");
   const [bottomTab, setBottomTab] = useState<"trades" | "chat">("trades");
@@ -49,11 +51,24 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
   
   const [chartData, setChartData] = useState(INITIAL_DATA);
   const [tradeHistory, setTradeHistory] = useState<any[]>([]);
-  const [comments, setComments] = useState<any[]>([]);
+  const [comments, setComments] = useState<any[]>([]); // Yorumlar için DB lazım, şimdilik LocalStorage
   const [commentInput, setCommentInput] = useState("");
 
   const { isConnected, address } = useAccount();
-  const { data: salesData, refetch } = useReadContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "sales", args: [tokenAddress] });
+
+  // 1. KULLANICININ TOKEN BAKİYESİNİ ÇEKME (SELL EKRANI İÇİN)
+  const { data: userTokenBalance, refetch: refetchBalance } = useReadContract({
+    address: tokenAddress,
+    abi: erc20Abi, // Standart ERC20 ABI
+    functionName: "balanceOf",
+    args: [address as `0x${string}`],
+    query: {
+      enabled: !!address, // Sadece cüzdan bağlıysa çek
+    }
+  });
+
+  // 2. TOKEN BİLGİLERİNİ ÇEKME
+  const { data: salesData, refetch: refetchSales } = useReadContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "sales", args: [tokenAddress] });
   const { data: name } = useReadContract({ address: tokenAddress, abi: [{ name: "name", type: "function", inputs: [], outputs: [{ type: "string" }], stateMutability: "view" }], functionName: "name" });
   const { data: symbol } = useReadContract({ address: tokenAddress, abi: [{ name: "symbol", type: "function", inputs: [], outputs: [{ type: "string" }], stateMutability: "view" }], functionName: "symbol" });
 
@@ -63,26 +78,100 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
   const realProgress = progress > 100 ? 100 : progress;
   const currentPrice = chartData[chartData.length - 1].close;
 
+  // 3. GEÇMİŞ İŞLEMLERİ (HISTORY) BLOKZİNCİRİNDEN ÇEKME
+  const fetchPastTrades = async () => {
+    if (!publicClient) return;
+    try {
+        // Buy Eventleri
+        const buyLogs = await publicClient.getContractEvents({
+            address: CONTRACT_ADDRESS,
+            abi: CONTRACT_ABI,
+            eventName: 'Buy',
+            args: { token: tokenAddress },
+            fromBlock: 'earliest'
+        });
+
+        // Sell Eventleri
+        const sellLogs = await publicClient.getContractEvents({
+            address: CONTRACT_ADDRESS,
+            abi: CONTRACT_ABI,
+            eventName: 'Sell',
+            args: { token: tokenAddress },
+            fromBlock: 'earliest'
+        });
+
+        const formattedBuys = buyLogs.map(log => ({
+            user: log.args.buyer,
+            type: "BUY",
+            amount: log.args.amountMATIC ? formatEther(log.args.amountMATIC) : "0",
+            time: "Past", // Gerçek blok zamanı için ekstra RPC sorgusu gerekir, şimdilik 'Past'
+            blockNumber: log.blockNumber
+        }));
+
+        const formattedSells = sellLogs.map(log => ({
+            user: log.args.seller,
+            type: "SELL",
+            amount: log.args.amountMATIC ? formatEther(log.args.amountMATIC) : "0",
+            time: "Past",
+            blockNumber: log.blockNumber
+        }));
+
+        // Hepsini birleştir ve sırala
+        const allTrades = [...formattedBuys, ...formattedSells].sort((a, b) => Number(b.blockNumber) - Number(a.blockNumber));
+        setTradeHistory(allTrades);
+
+    } catch (error) {
+        console.error("Error fetching history:", error);
+    }
+  };
+
   useEffect(() => {
     const stored = localStorage.getItem(`meta_${tokenAddress.toLowerCase()}`);
     if (stored) setMeta(JSON.parse(stored));
-  }, [tokenAddress]);
+    
+    // Sayfa açılınca geçmiş işlemleri getir
+    fetchPastTrades(); 
+    
+    // Yorumları LocalStorage'dan getir (Backend olmadığı için)
+    const storedComments = localStorage.getItem(`comments_${tokenAddress}`);
+    if(storedComments) setComments(JSON.parse(storedComments));
 
-  useWatchContractEvent({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, eventName: 'Buy', onLogs(logs: any) { handleLiveUpdate("BUY", logs[0].args.user || "0x...", logs[0].args.amount || amount || "0.1"); } });
-  useWatchContractEvent({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, eventName: 'Sell', onLogs(logs: any) { handleLiveUpdate("SELL", logs[0].args.user || "0x...", logs[0].args.amount || amount || "0.1"); } });
+  }, [tokenAddress, publicClient]);
 
-  const handleLiveUpdate = (type: "BUY" | "SELL", user: string, amountStr: string) => {
+  // CANLI EVENT DİNLEME (Yeni işlem olunca listeye ekle)
+  useWatchContractEvent({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, eventName: 'Buy', onLogs(logs: any) { 
+      const log = logs[0];
+      if(log.args.token.toLowerCase() === tokenAddress.toLowerCase()) {
+          handleLiveUpdate("BUY", log.args.buyer, log.args.amountMATIC); 
+      }
+  }});
+  useWatchContractEvent({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, eventName: 'Sell', onLogs(logs: any) { 
+      const log = logs[0];
+      if(log.args.token.toLowerCase() === tokenAddress.toLowerCase()) {
+          handleLiveUpdate("SELL", log.args.seller, log.args.amountMATIC); 
+      }
+  }});
+
+  const handleLiveUpdate = (type: "BUY" | "SELL", user: string, amountRaw: bigint) => {
       const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      const amountEth = formatEther(amountRaw);
+
+      // Grafiği güncelle
       setChartData(prev => {
           const last = prev[prev.length - 1];
-          const impact = Math.max(parseFloat(amountStr || "0") * 10, 2); 
+          const impact = parseFloat(amountEth) * 10; 
           const direction = type === "BUY" ? 1 : -1;
           const newClose = last.close + (direction * impact);
           const newCandle = { time: now, open: last.close, high: Math.max(last.close, newClose) + 1, low: Math.min(last.close, newClose) - 1, close: newClose };
           return [...prev.slice(-19), newCandle];
       });
-      setTradeHistory(prev => [{ user: user, type: type, amount: amountStr ? parseFloat(amountStr).toFixed(4) : "0.00", time: now }, ...prev]);
-      refetch();
+
+      // Listeye ekle
+      setTradeHistory(prev => [{ user: user, type: type, amount: amountEth, time: now }, ...prev]);
+      
+      // Bakiyeleri tazele
+      refetchBalance();
+      refetchSales();
   };
 
   const { data: hash, isPending, writeContract } = useWriteContract();
@@ -91,11 +180,21 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
   const handleTx = () => {
     if (!amount) { toast.error("Enter amount"); return; }
     try {
-        writeContract({
-            address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: activeTab === "buy" ? "buy" : "sell",
-            args: activeTab === "buy" ? [tokenAddress] : [tokenAddress, parseEther(amount)],
-            value: activeTab === "buy" ? parseEther(amount) : undefined,
-        });
+        if (activeTab === "buy") {
+            // ALIM İŞLEMİ
+            writeContract({
+                address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "buy",
+                args: [tokenAddress],
+                value: parseEther(amount),
+            });
+        } else {
+            // SATIŞ İŞLEMİ (Burada Token adedini Wei cinsinden göndermeliyiz)
+            // Kullanıcı "100 Token" satmak istiyorsa:
+            writeContract({
+                address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "sell",
+                args: [tokenAddress, parseEther(amount)], // Amount burada token miktarıdır
+            });
+        }
         toast.loading("Confirming...", { id: 'tx' });
     } catch(e) { toast.error("Failed"); toast.dismiss('tx'); }
   };
@@ -104,19 +203,26 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
       if (isConfirmed) { 
           toast.dismiss('tx');
           toast.success("Transaction Success!");
-          handleLiveUpdate(activeTab === "buy" ? "BUY" : "SELL", address || "You", amount);
           setAmount("");
+          refetchBalance(); // İşlem bitince bakiyeyi hemen güncelle
       }
   }, [isConfirmed]);
 
   const handleComment = () => {
       if(!commentInput) return;
-      setComments(prev => [{ user: "You", text: commentInput, time: "Just now" }, ...prev]);
+      const newComment = { user: "You", text: commentInput, time: "Just now" };
+      const updatedComments = [newComment, ...comments];
+      setComments(updatedComments);
+      // Yorumları tarayıcı hafızasına kaydet (Backend olmadığı için)
+      localStorage.setItem(`comments_${tokenAddress}`, JSON.stringify(updatedComments));
       setCommentInput("");
   };
 
   useEffect(() => { setIsMounted(true); }, []);
   if (!isMounted) return <div className="min-h-screen bg-[#1a0b2e]"/>;
+
+  // Kullanıcının token bakiyesi (Formatlanmış)
+  const myTokenBalance = userTokenBalance ? formatEther(userTokenBalance as bigint) : "0";
 
   return (
     <div className="min-h-screen bg-[#1a0b2e] text-white font-sans selection:bg-[#FDDC11] selection:text-black">
@@ -161,7 +267,7 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
                     {bottomTab === "trades" ? (
                         <div className="space-y-1">
                             {tradeHistory.length === 0 ? <div className="text-center py-10 text-gray-500 text-sm">No trades yet.</div> : (
-                                tradeHistory.map((trade, i) => (<div key={i} className="grid grid-cols-4 text-xs py-3 px-3 hover:bg-white/5 rounded-lg transition-colors border-b border-white/5 last:border-0"><div className="font-mono text-gray-400">{trade.user.slice(0,6)}...</div><div className={trade.type === "BUY" ? "text-green-500 font-bold" : "text-red-500 font-bold"}>{trade.type}</div><div className="text-white font-medium">{trade.amount} MATIC</div><div className="text-right text-gray-500">{trade.time}</div></div>))
+                                tradeHistory.map((trade, i) => (<div key={i} className="grid grid-cols-4 text-xs py-3 px-3 hover:bg-white/5 rounded-lg transition-colors border-b border-white/5 last:border-0"><div className="font-mono text-gray-400">{trade.user.slice(0,6)}...</div><div className={trade.type === "BUY" ? "text-green-500 font-bold" : "text-red-500 font-bold"}>{trade.type}</div><div className="text-white font-medium">{parseFloat(trade.amount).toFixed(4)} MATIC</div><div className="text-right text-gray-500">{trade.time}</div></div>))
                             )}
                         </div>
                     ) : (
@@ -177,22 +283,37 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
                     <button onClick={() => setActiveTab("buy")} className={`py-3 rounded-xl text-sm font-black uppercase transition-all shadow-lg ${activeTab === "buy" ? "bg-[#22c55e] text-white ring-2 ring-white/50" : "bg-[#15803d] text-white/70"}`}>Buy</button>
                     <button onClick={() => setActiveTab("sell")} className={`py-3 rounded-xl text-sm font-black uppercase transition-all shadow-lg ${activeTab === "sell" ? "bg-[#ef4444] text-white ring-2 ring-white/50" : "bg-[#b91c1c] text-white/70"}`}>Sell</button>
                 </div>
+                
                 <div className="space-y-4">
                     <div className="rounded-xl p-6 transition-colors duration-300 border border-white/10" style={{ backgroundColor: '#2d1b4e' }}>
-                        <div className="flex justify-between text-[10px] font-bold uppercase mb-2"><span style={{ color: '#ffffff' }}>Amount</span><span style={{ color: '#ffffff' }}>Bal: 0.00 {activeTab === "buy" ? "MATIC" : symbol}</span></div>
+                        <div className="flex justify-between text-[10px] font-bold uppercase mb-2">
+                            <span style={{ color: '#ffffff' }}>Amount</span>
+                            {/* DİNAMİK BAKİYE GÖSTERİMİ */}
+                            <span style={{ color: '#ffffff' }}>
+                                Bal: {activeTab === "buy" 
+                                    ? "0.00 MATIC" // Kendi MATIC bakiyesini göstermek için useBalance hook'u eklenebilir
+                                    : `${parseFloat(myTokenBalance).toFixed(2)} ${symbol || "TOKEN"}` // Token Bakiyesi
+                                }
+                            </span>
+                        </div>
                         <div className="flex items-center gap-2">
                             <input type="number" placeholder="0.0" value={amount} onChange={(e) => setAmount(e.target.value)} style={{ color: '#ffffff' }} className="w-full bg-transparent text-4xl font-black outline-none placeholder:text-white/50" />
                             <div className="px-3 py-1.5 rounded-lg text-xs font-bold bg-white/10 text-white">{activeTab === "buy" ? "MATIC" : symbol}</div>
                         </div>
                     </div>
-                    <div className="flex gap-2">{["Reset", "1 MATIC", "5 MATIC", "10 MATIC"].map((v,i) => (<button key={i} onClick={() => setAmount(i===0 ? "" : v.split(" ")[0])} style={{ color: '#ffffff', backgroundColor: '#1a0b2e' }} className="flex-1 py-2 border border-white/10 rounded-lg text-[10px] font-bold hover:bg-white/10 transition-colors">{v}</button>))}</div>
+                    
+                    {/* HIZLI SEÇİM BUTONLARI */}
+                    <div className="flex gap-2">{["Reset", "1", "5", "10"].map((v,i) => (<button key={i} onClick={() => setAmount(i===0 ? "" : v)} style={{ color: '#ffffff', backgroundColor: '#1a0b2e' }} className="flex-1 py-2 border border-white/10 rounded-lg text-[10px] font-bold hover:bg-white/10 transition-colors">{i===0 ? v : v + (activeTab === "buy" ? " MATIC" : ` ${symbol}`)}</button>))}</div>
+                    
                     <button onClick={handleTx} disabled={isPending || !isConnected} className={`w-full py-4 mt-2 rounded-xl text-sm font-black uppercase tracking-wide shadow-xl active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed ${activeTab === "buy" ? "bg-[#22c55e] hover:bg-[#16a34a] text-white shadow-green-500/20" : "bg-[#ef4444] hover:bg-[#dc2626] text-white shadow-red-500/20"}`}>{isPending ? "Processing..." : activeTab === "buy" ? "PLACE BUY ORDER" : "PLACE SELL ORDER"}</button>
                 </div>
+                
                 <div className="mt-8 pt-4 border-t border-white/10">
                     <div className="flex justify-between items-end mb-2"><div className="text-[10px] font-bold text-gray-400 uppercase">Bonding Curve</div><div className="text-sm font-black text-[#FDDC11]">{realProgress.toFixed(1)}%</div></div>
                     <div className="h-2 w-full bg-[#1a0b2e] rounded-full overflow-hidden border border-white/5"><div className="h-full bg-gradient-to-r from-[#FDDC11] to-purple-500 transition-all duration-500" style={{ width: `${realProgress}%` }} /></div>
                 </div>
             </div>
+            
             <div className="bg-[#2d1b4e]/50 border border-white/5 rounded-xl p-4 space-y-3">
                 <InfoRow label="Market Cap" value={`$${(parseFloat(collateral) * 3200).toFixed(2)}`} /><InfoRow label="Collateral" value={`${parseFloat(collateral).toFixed(4)} MATIC`} /><InfoRow label="Total Supply" value="1,000,000,000" />
             </div>
