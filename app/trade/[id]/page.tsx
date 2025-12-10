@@ -7,7 +7,7 @@ import Link from "next/link";
 import { useWriteContract, useWaitForTransactionReceipt, useReadContract, useWatchContractEvent, useAccount, usePublicClient } from "wagmi"; 
 import { parseEther, formatEther, erc20Abi } from "viem"; 
 import { CONTRACT_ADDRESS, CONTRACT_ABI } from "../../contract"; 
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Grid } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import toast, { Toaster } from 'react-hot-toast';
 import { motion } from "framer-motion";
 
@@ -148,243 +148,184 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
   if (!isMounted) return null;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#0a0e27] via-black to-[#0a0e27] text-white relative overflow-hidden">
-      {/* Animated Background */}
-      <div className="fixed inset-0 overflow-hidden pointer-events-none">
-        <motion.div
-          animate={{ rotate: 360 }}
-          transition={{ duration: 25, repeat: Infinity, ease: "linear" }}
-          className="absolute -top-1/2 -right-1/4 w-96 h-96 rounded-full opacity-20"
-          style={{
-            background: 'radial-gradient(circle, rgba(253, 220, 17, 0.3), transparent)',
-            filter: 'blur(60px)'
-          }}
-        />
-      </div>
-
-      <Toaster position="top-right" toastOptions={{ style: { background: '#1a1a1a', color: '#fff', border: '1px solid #333' } }} />
+    <div style={{ backgroundColor: '#0a0e27', color: '#fff', minHeight: '100vh', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', position: 'relative', overflow: 'hidden', backgroundImage: 'radial-gradient(circle at 50% 0%, #1e1b4b 0%, #0a0e27 60%)' }}>
+      <Toaster position="top-right" toastOptions={{ style: { background: '#1F2128', color: '#fff', border: '1px solid #333' } }} />
       
-      {/* Header */}
-      <header className="sticky top-0 z-40 border-b border-white/10 backdrop-blur-xl bg-black/50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-2 text-gray-400 hover:text-white transition-colors">
+      <div style={{ position: 'fixed', top: '-20%', right: '-10%', width: '600px', height: '600px', background: 'radial-gradient(circle, rgba(253,220,17,0.08) 0%, transparent 70%)', filter: 'blur(80px)', zIndex: 0 }} />
+      <div style={{ position: 'fixed', bottom: '-20%', left: '-10%', width: '600px', height: '600px', background: 'radial-gradient(circle, rgba(147,51,234,0.08) 0%, transparent 70%)', filter: 'blur(80px)', zIndex: 0 }} />
+
+      <header style={{ position: 'sticky', top: 0, zIndex: 40, backgroundColor: 'rgba(10, 14, 39, 0.8)', backdropFilter: 'blur(12px)', borderBottom: '1px solid rgba(255, 255, 255, 0.05)', padding: '16px 0' }}>
+        <div style={{ maxWidth: '1280px', margin: '0 auto', padding: '0 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#94a3b8', textDecoration: 'none', cursor: 'pointer' }}>
             <ArrowLeft size={18} />
-            <span className="text-sm font-semibold">Back</span>
+            <span style={{ fontSize: '14px', fontWeight: '600' }}>Back</span>
           </Link>
-          
-          <div className="flex items-center gap-3">
-            <div className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-white/5 rounded-lg border border-white/10 text-xs text-gray-400 font-mono hover:border-[#FDDC11]/30 transition-colors cursor-pointer" onClick={() => {navigator.clipboard.writeText(tokenAddress); toast.success("Copied!")}}>
-              <span className="text-[#FDDC11]">CA:</span> {tokenAddress.slice(0,6)}...{tokenAddress.slice(-4)}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', backgroundColor: 'rgba(30, 41, 59, 0.5)', borderRadius: '8px', border: '1px solid rgba(253, 220, 17, 0.1)', fontSize: '12px', color: '#94a3b8', fontFamily: 'monospace', cursor: 'pointer', transition: 'all 0.3s' }} onClick={() => { navigator.clipboard.writeText(tokenAddress); toast.success("Copied!"); }}>
+              <span style={{ color: '#FDDC11' }}>CA:</span> {tokenAddress.slice(0,6)}...{tokenAddress.slice(-4)}
               <Copy size={12} />
             </div>
-            <div className="scale-90"><ConnectButton showBalance={false} accountStatus="avatar" chainStatus="none" /></div>
+            <div style={{ transform: 'scale(0.9)' }}><ConnectButton showBalance={false} accountStatus="avatar" chainStatus="none" /></div>
           </div>
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8 grid grid-cols-1 lg:grid-cols-3 gap-8 relative z-10">
-        
-        {/* Left Column */}
-        <div className="lg:col-span-2 space-y-6">
-          {/* Token Header */}
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="flex items-start gap-4 p-6 rounded-2xl border border-white/10 bg-gradient-to-br from-white/5 to-white/0 backdrop-blur-md">
-            <img src={getTokenImage(tokenAddress)} alt="token" className="w-20 h-20 rounded-xl border border-white/20 object-cover" />
-            <div className="flex-1">
-              <div className="flex items-center gap-3 mb-2">
-                <h1 className="text-3xl font-black">{name?.toString() || "Token"}</h1>
-                <span className="text-sm font-bold text-gray-400">[{symbol?.toString() || "TKN"}]</span>
-              </div>
-              {desc && <p className="text-sm text-gray-400 mb-3">{desc}</p>}
-              <div className="flex items-center gap-2">
-                {twitter && <a href={twitter} target="_blank" className="p-2 rounded-lg bg-white/5 hover:bg-white/10 transition-colors"><Twitter size={14} /></a>}
-                {telegram && <a href={telegram} target="_blank" className="p-2 rounded-lg bg-white/5 hover:bg-white/10 transition-colors"><Send size={14} /></a>}
-                {web && <a href={web} target="_blank" className="p-2 rounded-lg bg-white/5 hover:bg-white/10 transition-colors"><Globe size={14} /></a>}
-                <a href={`https://polygonscan.com/address/${tokenAddress}`} target="_blank" className="flex items-center gap-1 text-xs text-gray-400 hover:text-white transition-colors"><ExternalLink size={12}/> Explore</a>
-              </div>
-            </div>
-          </motion.div>
-
-          {/* Chart */}
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="rounded-2xl border border-white/10 bg-gradient-to-br from-white/5 to-white/0 backdrop-blur-md p-6">
-            <div className="flex justify-between items-center mb-6">
-              <div>
-                <div className="text-xs text-gray-500 font-medium">Price</div>
-                <div className="text-3xl font-black mt-1">{currentPrice.toFixed(6)} MATIC</div>
-              </div>
-              <div className="text-right">
-                <div className="text-xs text-gray-500 font-medium">Market Cap</div>
-                <div className="text-2xl font-bold mt-1">${(parseFloat(collateral) * 3200).toLocaleString()}</div>
-              </div>
-            </div>
+      <main style={{ maxWidth: '1280px', margin: '0 auto', padding: '32px 20px', position: 'relative', zIndex: 10 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '32px' }}>
+          <div style={{ gridColumn: '1 / -1', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '24px' }}>
             
-            {chartData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={250}>
-                <LineChart data={chartData}>
-                  <defs>
-                    <linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#FDDC11" stopOpacity={0.8}/>
-                      <stop offset="95%" stopColor="#FDDC11" stopOpacity={0.1}/>
-                    </linearGradient>
-                  </defs>
-                  <XAxis dataKey="name" stroke="#666" style={{ fontSize: '12px' }} />
-                  <YAxis domain={['auto', 'auto']} stroke="#666" style={{ fontSize: '12px' }} />
-                  <Tooltip contentStyle={{ backgroundColor: '#1a1a1a', border: '1px solid #333', borderRadius: '8px' }} />
-                  <Line type="monotone" dataKey="price" stroke="#FDDC11" dot={false} isAnimationActive={false} strokeWidth={2} />
-                </LineChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="h-64 flex items-center justify-center text-gray-500">
-                Waiting for trades...
-              </div>
-            )}
-          </motion.div>
-
-          {/* Tabs */}
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="rounded-2xl border border-white/10 bg-gradient-to-br from-white/5 to-white/0 backdrop-blur-md overflow-hidden">
-            <div className="flex border-b border-white/10">
-              <button onClick={() => setBottomTab("trades")} className={`flex-1 px-4 py-3 text-sm font-semibold transition-colors ${bottomTab === "trades" ? "bg-white/10 text-white" : "text-gray-400 hover:text-white"}`}>
-                <TrendingUp className="inline mr-2" size={16} /> Trades
-              </button>
-              <button onClick={() => setBottomTab("chat")} className={`flex-1 px-4 py-3 text-sm font-semibold transition-colors ${bottomTab === "chat" ? "bg-white/10 text-white" : "text-gray-400 hover:text-white"}`}>
-                <MessageSquare className="inline mr-2" size={16} /> Comments
-              </button>
-            </div>
-            
-            <div className="p-4">
-              {bottomTab === "trades" ? (
-                <div className="space-y-2">
-                  {tradeHistory.length === 0 ? (
-                    <div className="text-center py-8 text-gray-500 text-sm">No trades yet</div>
-                  ) : (
-                    tradeHistory.map((trade, i) => (
-                      <div key={i} className="flex items-center justify-between p-3 rounded-lg bg-white/5 border border-white/10 text-xs hover:border-white/20 transition-colors">
-                        <div className="font-mono text-gray-400">{trade.user.slice(0,6)}...</div>
-                        <div className={trade.type === "BUY" ? "text-green-400 font-bold" : "text-red-400 font-bold"}>{trade.type}</div>
-                        <div className="text-white">{trade.amount} MATIC</div>
-                      </div>
-                    ))
-                  )}
+            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} style={{ display: 'flex', gap: '20px', padding: '24px', borderRadius: '20px', border: '1px solid rgba(253, 220, 17, 0.15)', background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.5), rgba(15, 23, 42, 0.7))', backdropFilter: 'blur(20px)', gridColumn: '1 / -1' }}>
+              <img src={getTokenImage(tokenAddress)} alt="token" style={{ width: '80px', height: '80px', borderRadius: '16px', border: '1px solid rgba(253, 220, 17, 0.2)', objectFit: 'cover', flexShrink: 0 }} />
+              <div style={{ flex: 1 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
+                  <h1 style={{ fontSize: '32px', fontWeight: '900', margin: 0 }}>{name?.toString() || "Token"}</h1>
+                  <span style={{ fontSize: '14px', fontWeight: '700', color: '#94a3b8' }}>[{symbol?.toString() || "TKN"}]</span>
                 </div>
+                {desc && <p style={{ fontSize: '14px', color: '#94a3b8', marginBottom: '12px' }}>{desc}</p>}
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  {twitter && <a href={twitter} target="_blank" rel="noopener noreferrer" style={{ padding: '8px', borderRadius: '8px', backgroundColor: 'rgba(30, 41, 59, 0.5)', border: '1px solid rgba(253, 220, 17, 0.1)', color: '#94a3b8', textDecoration: 'none', display: 'flex' }}><Twitter size={16} /></a>}
+                  {telegram && <a href={telegram} target="_blank" rel="noopener noreferrer" style={{ padding: '8px', borderRadius: '8px', backgroundColor: 'rgba(30, 41, 59, 0.5)', border: '1px solid rgba(253, 220, 17, 0.1)', color: '#94a3b8', textDecoration: 'none', display: 'flex' }}><Send size={16} /></a>}
+                  {web && <a href={web} target="_blank" rel="noopener noreferrer" style={{ padding: '8px', borderRadius: '8px', backgroundColor: 'rgba(30, 41, 59, 0.5)', border: '1px solid rgba(253, 220, 17, 0.1)', color: '#94a3b8', textDecoration: 'none', display: 'flex' }}><Globe size={16} /></a>}
+                  <a href={`https://polygonscan.com/address/${tokenAddress}`} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#94a3b8', textDecoration: 'none' }}><ExternalLink size={12} /> Explore</a>
+                </div>
+              </div>
+            </motion.div>
+
+            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} style={{ borderRadius: '20px', border: '1px solid rgba(253, 220, 17, 0.15)', background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.5), rgba(15, 23, 42, 0.7))', backdropFilter: 'blur(20px)', padding: '24px', gridColumn: '1 / -1' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '24px' }}>
+                <div><div style={{ fontSize: '12px', color: '#94a3b8', fontWeight: '600' }}>Price</div><div style={{ fontSize: '32px', fontWeight: '900', marginTop: '4px' }}>{currentPrice.toFixed(6)} MATIC</div></div>
+                <div style={{ textAlign: 'right' }}><div style={{ fontSize: '12px', color: '#94a3b8', fontWeight: '600' }}>Market Cap</div><div style={{ fontSize: '24px', fontWeight: '700', marginTop: '4px' }}>${(parseFloat(collateral) * 3200).toLocaleString()}</div></div>
+              </div>
+              {chartData.length > 0 ? (
+                <ResponsiveContainer width="100%" height={280}>
+                  <LineChart data={chartData}>
+                    <defs>
+                      <linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#FDDC11" stopOpacity={0.8}/>
+                        <stop offset="95%" stopColor="#FDDC11" stopOpacity={0.1}/>
+                      </linearGradient>
+                    </defs>
+                    <XAxis dataKey="name" stroke="#666" style={{ fontSize: '12px' }} />
+                    <YAxis domain={['auto', 'auto']} stroke="#666" style={{ fontSize: '12px' }} />
+                    <Tooltip contentStyle={{ backgroundColor: '#1F2128', border: '1px solid rgba(253, 220, 17, 0.2)', borderRadius: '8px', color: '#fff' }} />
+                    <Line type="monotone" dataKey="price" stroke="#FDDC11" dot={false} isAnimationActive={false} strokeWidth={2} />
+                  </LineChart>
+                </ResponsiveContainer>
               ) : (
-                <div className="space-y-3">
-                  <div className="max-h-64 overflow-y-auto space-y-2">
-                    {comments.map((c, i) => (
-                      <div key={i} className="p-3 rounded-lg bg-white/5 border border-white/10 hover:border-white/20 transition-colors">
-                        <div className="flex items-center gap-2 mb-1">
-                          <User size={12} className="text-[#FDDC11]" />
-                          <span className="text-xs font-bold">{c.user}</span>
-                          <span className="text-[10px] text-gray-500">{c.time}</span>
-                        </div>
-                        <p className="text-xs text-gray-300">{c.text}</p>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="flex gap-2 mt-4">
-                    <input 
-                      type="text" 
-                      value={commentInput} 
-                      onChange={(e) => setCommentInput(e.target.value)}
-                      onKeyPress={(e) => e.key === 'Enter' && handleComment()}
-                      placeholder="Write a comment..." 
-                      className="flex-1 px-4 py-2 rounded-lg border border-white/10 bg-white/5 text-white placeholder-gray-600 text-xs focus:border-[#FDDC11] focus:outline-none transition-colors"
-                    />
-                    <button onClick={handleComment} className="p-2.5 bg-[#FDDC11] text-black rounded-lg hover:bg-[#ffe55c] transition-colors font-bold">
-                      <Send size={14} />
-                    </button>
-                  </div>
-                </div>
+                <div style={{ height: '280px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b' }}>Waiting for trades...</div>
               )}
+            </motion.div>
+
+            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} style={{ borderRadius: '20px', border: '1px solid rgba(253, 220, 17, 0.15)', background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.5), rgba(15, 23, 42, 0.7))', backdropFilter: 'blur(20px)', overflow: 'hidden', gridColumn: '1 / -1' }}>
+              <div style={{ display: 'flex', borderBottom: '1px solid rgba(255, 255, 255, 0.05)' }}>
+                <button onClick={() => setBottomTab("trades")} style={{ flex: 1, padding: '16px', textAlign: 'center', fontSize: '14px', fontWeight: '700', color: bottomTab === "trades" ? '#fff' : '#94a3b8', backgroundColor: bottomTab === "trades" ? 'rgba(30, 41, 59, 0.6)' : 'transparent', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                  <TrendingUp size={16} /> Trades
+                </button>
+                <button onClick={() => setBottomTab("chat")} style={{ flex: 1, padding: '16px', textAlign: 'center', fontSize: '14px', fontWeight: '700', color: bottomTab === "chat" ? '#fff' : '#94a3b8', backgroundColor: bottomTab === "chat" ? 'rgba(30, 41, 59, 0.6)' : 'transparent', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                  <MessageSquare size={16} /> Comments
+                </button>
+              </div>
+              <div style={{ padding: '16px' }}>
+                {bottomTab === "trades" ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {tradeHistory.length === 0 ? (
+                      <div style={{ textAlign: 'center', padding: '32px 16px', color: '#64748b', fontSize: '14px' }}>No trades yet</div>
+                    ) : (
+                      tradeHistory.map((trade, i) => (
+                        <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px', borderRadius: '10px', backgroundColor: 'rgba(255, 255, 255, 0.05)', border: '1px solid rgba(253, 220, 17, 0.1)', fontSize: '12px' }}>
+                          <div style={{ fontFamily: 'monospace', color: '#94a3b8' }}>{trade.user.slice(0,6)}...</div>
+                          <div style={{ color: trade.type === "BUY" ? '#10b981' : '#ef4444', fontWeight: '700' }}>{trade.type}</div>
+                          <div style={{ color: '#fff' }}>{trade.amount} MATIC</div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    <div style={{ maxHeight: '320px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {comments.map((c, i) => (
+                        <div key={i} style={{ padding: '12px', borderRadius: '10px', backgroundColor: 'rgba(255, 255, 255, 0.05)', border: '1px solid rgba(253, 220, 17, 0.1)' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                            <User size={12} style={{ color: '#FDDC11' }} />
+                            <span style={{ fontSize: '12px', fontWeight: '700', color: '#fff' }}>{c.user}</span>
+                            <span style={{ fontSize: '10px', color: '#64748b' }}>{c.time}</span>
+                          </div>
+                          <p style={{ fontSize: '12px', color: '#d1d5db', margin: 0 }}>{c.text}</p>
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <input type="text" value={commentInput} onChange={(e) => setCommentInput(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && handleComment()} placeholder="Write a comment..." style={{ flex: 1, padding: '10px 12px', borderRadius: '10px', border: '1px solid rgba(253, 220, 17, 0.1)', backgroundColor: 'rgba(30, 41, 59, 0.5)', color: '#fff', fontSize: '12px', outline: 'none', fontFamily: 'inherit' }} />
+                      <button onClick={handleComment} style={{ padding: '10px 12px', backgroundColor: '#FDDC11', color: '#000', border: 'none', borderRadius: '10px', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
+                        <Send size={14} />
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          </div>
+
+          <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} style={{ display: 'flex', flexDirection: 'column', gap: '24px', position: 'sticky', top: '100px', height: 'fit-content' }}>
+            <div style={{ borderRadius: '20px', border: '1px solid rgba(253, 220, 17, 0.15)', background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.5), rgba(15, 23, 42, 0.7))', backdropFilter: 'blur(20px)', padding: '24px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '24px' }}>
+                <button onClick={() => setActiveTab("buy")} style={{ padding: '16px', borderRadius: '12px', fontWeight: '700', fontSize: '14px', border: activeTab === "buy" ? '1px solid rgba(16, 185, 129, 0.5)' : '1px solid rgba(255, 255, 255, 0.1)', backgroundColor: activeTab === "buy" ? 'rgba(16, 185, 129, 0.15)' : 'rgba(255, 255, 255, 0.05)', color: activeTab === "buy" ? '#10b981' : '#94a3b8', cursor: 'pointer' }}>Buy</button>
+                <button onClick={() => setActiveTab("sell")} style={{ padding: '16px', borderRadius: '12px', fontWeight: '700', fontSize: '14px', border: activeTab === "sell" ? '1px solid rgba(239, 68, 68, 0.5)' : '1px solid rgba(255, 255, 255, 0.1)', backgroundColor: activeTab === "sell" ? 'rgba(239, 68, 68, 0.15)' : 'rgba(255, 255, 255, 0.05)', color: activeTab === "sell" ? '#ef4444' : '#94a3b8', cursor: 'pointer' }}>Sell</button>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <div style={{ padding: '16px', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.1)', backgroundColor: 'rgba(30, 41, 59, 0.5)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px', fontSize: '12px', color: '#94a3b8' }}>
+                    <span>Amount</span>
+                    <span>Bal: {activeTab === "buy" ? "0.00 MATIC" : `${userTokenBalance ? parseFloat(formatEther(userTokenBalance as bigint)).toFixed(2) : "0.00"} ${symbol}`}</span>
+                  </div>
+                  <input type="number" placeholder="0.0" value={amount} onChange={(e) => setAmount(e.target.value)} style={{ width: '100%', fontSize: '36px', fontWeight: '900', backgroundColor: 'transparent', color: '#fff', outline: 'none', border: 'none', fontFamily: 'inherit' }} />
+                  <div style={{ textAlign: 'right', marginTop: '12px', fontSize: '12px', color: '#94a3b8' }}>{activeTab === "buy" ? "MATIC" : symbol || "TKN"}</div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px' }}>
+                  {["0.1", "0.5", "1", "5"].map((v) => (
+                    <button key={v} onClick={() => setAmount(v)} style={{ padding: '10px', borderRadius: '10px', border: '1px solid rgba(253, 220, 17, 0.1)', backgroundColor: 'rgba(30, 41, 59, 0.5)', color: '#fff', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}>{v}</button>
+                  ))}
+                </div>
+                <button onClick={handleTx} disabled={isPending || isConfirming || !isConnected} style={{ width: '100%', padding: '16px', borderRadius: '12px', fontWeight: '700', fontSize: '14px', border: 'none', backgroundColor: activeTab === "buy" ? '#10b981' : '#ef4444', color: '#fff', cursor: 'pointer', opacity: (isPending || isConfirming || !isConnected) ? 0.5 : 1 }}>
+                  {isPending ? "Processing..." : isConfirming ? "Confirming..." : activeTab === "buy" ? "BUY" : "SELL"}
+                </button>
+              </div>
+            </div>
+
+            <div style={{ borderRadius: '20px', border: '1px solid rgba(253, 220, 17, 0.15)', background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.5), rgba(15, 23, 42, 0.7))', backdropFilter: 'blur(20px)', padding: '24px' }}>
+              <div style={{ marginBottom: '16px' }}>
+                <div style={{ fontSize: '12px', color: '#94a3b8', fontWeight: '600', marginBottom: '8px' }}>Bonding Curve</div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '12px' }}>
+                  <span></span>
+                  <span style={{ color: '#fff', fontWeight: '700' }}>{realProgress.toFixed(1)}%</span>
+                </div>
+                <div style={{ height: '8px', backgroundColor: 'rgba(255, 255, 255, 0.1)', borderRadius: '4px', overflow: 'hidden' }}>
+             <div style={{
+                    height: '100%',
+                    width: `${realProgress}%`,
+                    background: 'linear-gradient(90deg, #FDDC11 0%, #fef08a 100%)',
+                    transition: 'width 0.3s ease',
+                    borderRadius: '4px'
+                  }} />
+                </div>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '16px', fontSize: '12px', color: '#94a3b8', borderTop: '1px solid rgba(255, 255, 255, 0.05)', paddingTop: '16px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span>Market Cap</span>
+                  <span style={{ color: '#fff', fontWeight: '700' }}>${(parseFloat(collateral) * 3200).toLocaleString()}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span>Collateral</span>
+                  <span style={{ color: '#fff', fontWeight: '700' }}>{parseFloat(collateral).toFixed(4)} MATIC</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span>Total Supply</span>
+                  <span style={{ color: '#fff', fontWeight: '700' }}>1,000,000,000</span>
+                </div>
+              </div>
             </div>
           </motion.div>
         </div>
-
-        {/* Right Column - Trade Panel */}
-        <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="space-y-6">
-          {/* Trade Card */}
-          <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-white/5 to-white/0 backdrop-blur-md p-6 sticky top-24">
-            <div className="grid grid-cols-2 gap-3 mb-6">
-              <button 
-                onClick={() => setActiveTab("buy")}
-                className={`py-3 rounded-xl font-bold text-sm transition-all ${activeTab === "buy" ? "bg-gradient-to-br from-green-500/30 to-green-600/20 border border-green-500/50 text-green-400 shadow-lg shadow-green-500/20" : "bg-white/5 border border-white/10 text-gray-400 hover:bg-white/10"}`}
-              >
-                Buy
-              </button>
-              <button 
-                onClick={() => setActiveTab("sell")}
-                className={`py-3 rounded-xl font-bold text-sm transition-all ${activeTab === "sell" ? "bg-gradient-to-br from-red-500/30 to-red-600/20 border border-red-500/50 text-red-400 shadow-lg shadow-red-500/20" : "bg-white/5 border border-white/10 text-gray-400 hover:bg-white/10"}`}
-              >
-                Sell
-              </button>
-            </div>
-
-            <div className="space-y-4">
-              <div className="p-4 rounded-xl border border-white/10 bg-white/5">
-                <div className="flex justify-between mb-2 text-xs text-gray-400">
-                  <span>Amount</span>
-                  <span>Bal: {activeTab === "buy" ? "0.00 MATIC" : `${userTokenBalance ? parseFloat(formatEther(userTokenBalance as bigint)).toFixed(2) : "0.00"} ${symbol}`}</span>
-                </div>
-                <input 
-                  type="number" 
-                  placeholder="0.0" 
-                  value={amount} 
-                  onChange={(e) => setAmount(e.target.value)}
-                  className="w-full text-4xl font-black bg-transparent text-white outline-none placeholder-white/50"
-                />
-                <div className="text-right mt-2 text-xs text-gray-400">
-                  {activeTab === "buy" ? "MATIC" : symbol || "TKN"}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-4 gap-2">
-                {["0.1", "0.5", "1", "5"].map((v) => (
-                  <button
-                    key={v}
-                    onClick={() => setAmount(v)}
-                    className="py-2 rounded-lg border border-white/10 bg-white/5 text-xs font-bold text-white hover:bg-white/10 hover:border-[#FDDC11]/30 transition-colors"
-                  >
-                    {v}
-                  </button>
-                ))}
-              </div>
-
-              <button
-                onClick={handleTx}
-                disabled={isPending || isConfirming || !isConnected}
-                className={`w-full py-3.5 rounded-xl font-black text-sm transition-all shadow-lg ${
-                  activeTab === "buy"
-                    ? "bg-gradient-to-r from-green-500 to-green-600 hover:from-green-400 hover:to-green-500 text-white shadow-green-500/30"
-                    : "bg-gradient-to-r from-red-500 to-red-600 hover:from-red-400 hover:to-red-500 text-white shadow-red-500/30"
-                } disabled:opacity-50 disabled:cursor-not-allowed`}
-              >
-                {isPending ? "Processing..." : activeTab === "buy" ? "BUY" : "SELL"}
-              </button>
-            </div>
-          </div>
-
-          {/* Info */}
-          <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-white/5 to-white/0 backdrop-blur-md p-6 space-y-4">
-            <div>
-              <div className="text-xs text-gray-500 font-medium mb-2">Bonding Curve</div>
-              <div className="flex justify-between mb-1.5 text-xs">
-                <span></span>
-                <span className="text-white font-bold">{realProgress.toFixed(1)}%</span>
-              </div>
-              <div className="h-2 bg-white/10 rounded-full overflow-hidden">
-                <motion.div 
-                  className="h-full bg-gradient-to-r from-[#FDDC11] to-purple-500 shadow-lg shadow-[#FDDC11]/30"
-                  animate={{ width: `${realProgress}%` }}
-                  transition={{ duration: 0.5 }}
-                />
-              </div>
-            </div>
-
-            <div className="space-y-3 text-xs border-t border-white/10 pt-4">
-              <div className="flex justify-between p-2 rounded-lg hover:bg-white/5 transition-colors"><span className="text-gray-400">Market Cap</span><span className="text-white font-semibold">${(parseFloat(collateral) * 3200).toLocaleString()}</span></div>
-              <div className="flex justify-between p-2 rounded-lg hover:bg-white/5 transition-colors"><span className="text-gray-400">Collateral</span><span className="text-white font-semibold">{parseFloat(collateral).toFixed(4)} MATIC</span></div>
-              <div className="flex justify-between p-2 rounded-lg hover:bg-white/5 transition-colors"><span className="text-gray-400">Total Supply</span><span className="text-white font-semibold">1,000,000,000</span></div>
-            </div>
-          </div>
-        </motion.div>
       </main>
     </div>
   );
