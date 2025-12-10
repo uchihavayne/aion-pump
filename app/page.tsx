@@ -5,7 +5,7 @@ import { Rocket, X, Coins, Twitter, Send, Globe, TrendingUp, Users, Activity } f
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { useWriteContract, useWaitForTransactionReceipt, useReadContract, useWatchContractEvent } from "wagmi"; 
+import { useWriteContract, useWaitForTransactionReceipt, useReadContract, useWatchContractEvent, usePublicClient } from "wagmi"; 
 import { parseEther, formatEther } from "viem";
 import { CONTRACT_ADDRESS, CONTRACT_ABI } from "./contract";
 import toast, { Toaster } from 'react-hot-toast';
@@ -17,6 +17,9 @@ const getTokenImage = (address: string) =>
 
 function DarkTokenCard({ tokenAddress }: { tokenAddress: `0x${string}` }) {
   const [hovering, setHovering] = useState(false);
+  const [holders, setHolders] = useState(1);
+  const publicClient = usePublicClient();
+
   const { data: salesData } = useReadContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "sales", args: [tokenAddress] });
   const { data: name } = useReadContract({ address: tokenAddress, abi: [{ name: "name", type: "function", inputs: [], outputs: [{ type: "string" }], stateMutability: "view" }], functionName: "name" });
   const { data: symbol } = useReadContract({ address: tokenAddress, abi: [{ name: "symbol", type: "function", inputs: [], outputs: [{ type: "string" }], stateMutability: "view" }], functionName: "symbol" });
@@ -26,6 +29,25 @@ function DarkTokenCard({ tokenAddress }: { tokenAddress: `0x${string}` }) {
   const progress = Number((tokensSold * 100n) / 1000000000000000000000000000n);
   const realProgress = progress > 100 ? 100 : progress;
   const tokenImage = getTokenImage(tokenAddress);
+
+  // GERÇEK HOLDER SAYISINI ÇEKME
+  useEffect(() => {
+    const getHolders = async () => {
+      if(!publicClient) return;
+      try {
+        const logs = await publicClient.getContractEvents({
+          address: CONTRACT_ADDRESS,
+          abi: CONTRACT_ABI,
+          eventName: 'Buy',
+          args: { token: tokenAddress },
+          fromBlock: 'earliest'
+        });
+        const uniqueBuyers = new Set(logs.map((l: any) => l.args.buyer));
+        setHolders(uniqueBuyers.size > 0 ? uniqueBuyers.size : 1);
+      } catch(e) {}
+    };
+    getHolders();
+  }, [tokenAddress, publicClient]);
 
   return (
     <Link href={`/trade/${tokenAddress}`}>
@@ -98,7 +120,10 @@ function DarkTokenCard({ tokenAddress }: { tokenAddress: `0x${string}` }) {
             <Coins size={14} style={{ color: '#FDDC11' }} />
             <span>{parseFloat(collateral).toFixed(2)} MATIC</span>
           </div>
-          {/* FAKE HOLDER YERİNE BOŞ BIRAKTIK */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: '600' }}>
+            <Users size={14} style={{ color: '#9333ea' }} />
+            <span>Holders: {holders}</span>
+          </div>
         </div>
       </motion.div>
     </Link>
