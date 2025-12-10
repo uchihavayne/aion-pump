@@ -1,6 +1,6 @@
 // app/contract.ts
 
-// SENİN DEPLOY ETTİĞİN YENİ GÜVENLİ KONTRAT ADRESİ:
+// BURAYA YENİ ADRESİ YAPIŞTIR
 export const CONTRACT_ADDRESS = "0x1CdF04d7E171B861463564Faf927519AaF78CE50";
 
 export const CONTRACT_ABI = [
@@ -8,10 +8,10 @@ export const CONTRACT_ABI = [
     "inputs": [
       {"internalType": "string", "name": "name", "type": "string"},
       {"internalType": "string", "name": "symbol", "type": "string"},
-      {"internalType": "string", "name": "description", "type": "string"}, // Yeni
-      {"internalType": "string", "name": "twitter", "type": "string"},     // Yeni
-      {"internalType": "string", "name": "telegram", "type": "string"},    // Yeni
-      {"internalType": "string", "name": "website", "type": "string"}      // Yeni
+      {"internalType": "string", "name": "description", "type": "string"},
+      {"internalType": "string", "name": "twitter", "type": "string"},
+      {"internalType": "string", "name": "telegram", "type": "string"},
+      {"internalType": "string", "name": "website", "type": "string"}
     ],
     "name": "createToken",
     "outputs": [],
@@ -20,7 +20,7 @@ export const CONTRACT_ABI = [
   },
   {
     "inputs": [{"internalType": "address", "name": "", "type": "address"}],
-    "name": "tokenMetadata", // Metadata Okuma Fonksiyonu
+    "name": "tokenMetadata", 
     "outputs": [
       {"internalType": "string", "name": "description", "type": "string"},
       {"internalType": "string", "name": "twitter", "type": "string"},
