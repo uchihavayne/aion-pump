@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, use, useEffect, useRef } from "react";
-import { ArrowLeft, Twitter, Globe, Send, Copy, TrendingUp, MessageSquare, User, ExternalLink } from "lucide-react";
+import { ArrowLeft, Twitter, Globe, Send, Copy, TrendingUp, MessageSquare, User, ExternalLink, Coins } from "lucide-react";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import Link from "next/link";
 import { useWriteContract, useWaitForTransactionReceipt, useReadContract, useWatchContractEvent, useAccount, usePublicClient, useBalance } from "wagmi"; 
@@ -32,7 +32,7 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
   // DATA STATES
   const [chartData, setChartData] = useState<any[]>([]);
   const [tradeHistory, setTradeHistory] = useState<any[]>([]);
-  const [holders, setHolders] = useState<number>(1); // Default 1 (Creator)
+  const [holders, setHolders] = useState<number>(1);
   const [comments, setComments] = useState<any[]>([]);
   const [commentInput, setCommentInput] = useState("");
   const processedTxHashes = useRef(new Set());
@@ -65,26 +65,22 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
   const telegram = metadata ? metadata[2] : "";
   const web = metadata ? metadata[3] : "";
 
-  // 4. GÜÇLENDİRİLMİŞ GEÇMİŞ ÇEKME (JS FILTERING)
+  // 4. GEÇMİŞ İŞLEMLERİ ÇEKME (SAFE MODE)
   const fetchHistory = async () => {
     if (!publicClient) return;
     try {
-      // Tüm eventleri çek (token filtresi olmadan, hata payını azaltır)
+      // Filtreleme yapmadan tüm eventleri çekip JS ile filtreliyoruz (RPC hatasını önler)
       const [buyLogs, sellLogs] = await Promise.all([
         publicClient.getContractEvents({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, eventName: 'Buy', fromBlock: 'earliest' }),
         publicClient.getContractEvents({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, eventName: 'Sell', fromBlock: 'earliest' })
       ]);
 
-      // JS tarafında filtrele (Daha güvenilir)
       const relevantBuys = buyLogs.filter((l: any) => l.args.token.toLowerCase() === tokenAddress.toLowerCase());
       const relevantSells = sellLogs.filter((l: any) => l.args.token.toLowerCase() === tokenAddress.toLowerCase());
 
-      const allEvents = [
-        ...relevantBuys.map(l => ({ ...l, type: "BUY" })), 
-        ...relevantSells.map(l => ({ ...l, type: "SELL" }))
-      ].sort((a, b) => Number(a.blockNumber) - Number(b.blockNumber) || a.logIndex - b.logIndex);
+      const allEvents = [...relevantBuys.map(l => ({ ...l, type: "BUY" })), ...relevantSells.map(l => ({ ...l, type: "SELL" }))]
+        .sort((a, b) => Number(a.blockNumber) - Number(b.blockNumber) || a.logIndex - b.logIndex);
 
-      // Holder Hesapla
       const buyers = new Set(relevantBuys.map((l: any) => l.args.buyer));
       setHolders(buyers.size > 0 ? buyers.size : 1);
 
@@ -93,14 +89,13 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
       let lastPrice = 0.0000001;
 
       allEvents.forEach((event: any) => {
-        // Double check
-        const txHash = event.transactionHash;
-        
+        if (processedTxHashes.current.has(event.transactionHash)) return;
+        processedTxHashes.current.add(event.transactionHash);
+
         const maticVal = parseFloat(formatEther(event.args.amountMATIC || 0n));
         const tokenVal = parseFloat(formatEther(event.args.amountTokens || 0n));
         let executionPrice = tokenVal > 0 ? maticVal / tokenVal : lastPrice;
         
-        // Trades (Ters sıra: En yeni en üstte)
         newTrades.unshift({
           user: event.args.buyer || event.args.seller,
           type: event.type,
@@ -109,7 +104,6 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
           time: `Blk ${event.blockNumber}`
         });
 
-        // Grafik (Düz sıra)
         newChartData.push({ 
             name: event.blockNumber.toString(), 
             price: executionPrice,
@@ -119,51 +113,47 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
         lastPrice = executionPrice;
       });
 
-      setChartData(newChartData);
-      setTradeHistory(newTrades);
+      if (newChartData.length > 0) setChartData(newChartData);
+      if (newTrades.length > 0) setTradeHistory(newTrades);
       
     } catch (e) { console.error("History Error:", e); }
   };
 
-  // İlk yüklemede ve periyodik olarak çek
   useEffect(() => {
     fetchHistory();
-    const interval = setInterval(fetchHistory, 5000);
     const storedComments = localStorage.getItem(`comments_${tokenAddress}`);
     if(storedComments) setComments(JSON.parse(storedComments));
-    return () => clearInterval(interval);
   }, [tokenAddress, publicClient]);
 
-  // CANLI EVENT DİNLEME
-  useWatchContractEvent({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, eventName: 'Buy', onLogs(logs: any) { processLiveLog(logs[0], "BUY"); } });
-  useWatchContractEvent({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, eventName: 'Sell', onLogs(logs: any) { processLiveLog(logs[0], "SELL"); } });
+  // 5. MANUEL GÜNCELLEME (OPTIMISTIC UPDATE)
+  const manualUpdate = (type: "BUY" | "SELL", amountInput: string) => {
+      const val = parseFloat(amountInput);
+      if (!val || val <= 0) return;
 
-  const processLiveLog = (log: any, type: "BUY" | "SELL") => {
-    if(log.args.token.toLowerCase() !== tokenAddress.toLowerCase()) return;
-    
-    // Geçmişte zaten varsa ekleme (duplicate önlemi)
-    if(processedTxHashes.current.has(log.transactionHash)) return;
-    processedTxHashes.current.add(log.transactionHash);
+      const estimatedPrice = currentPrice; // Kabaca son fiyatı kullanıyoruz anlık gösterim için
+      const estimatedTokens = type === "BUY" ? val / estimatedPrice : val;
+      const displayAmount = type === "BUY" ? val : (val * estimatedPrice);
 
-    const maticVal = parseFloat(formatEther(log.args.amountMATIC || 0n));
-    const tokenVal = parseFloat(formatEther(log.args.amountTokens || 0n));
-    const executionPrice = tokenVal > 0 ? maticVal / tokenVal : (chartData.length > 0 ? chartData[chartData.length-1].price : 0);
-    
-    setChartData(prev => [...prev, { name: "New", price: executionPrice, isUp: type === "BUY", fill: type === "BUY" ? '#10b981' : '#ef4444' }]);
-    
-    setTradeHistory(prev => [{ 
-        user: type === "BUY" ? log.args.buyer : log.args.seller, 
-        type: type, 
-        amount: maticVal.toFixed(4), 
-        price: executionPrice.toFixed(8), 
-        time: "Just now" 
-    }, ...prev]);
+      const newTrade = {
+          user: address || "You",
+          type: type,
+          amount: displayAmount.toFixed(4),
+          price: estimatedPrice.toFixed(8),
+          time: "Just now"
+      };
 
-    if (type === "BUY") setHolders(prev => prev + 1);
+      // Listeye anında ekle
+      setTradeHistory(prev => [newTrade, ...prev]);
+      
+      // Grafiğe anında ekle
+      setChartData(prev => [...prev, { 
+          name: "New", 
+          price: estimatedPrice, 
+          isUp: type === "BUY", 
+          fill: type === "BUY" ? '#10b981' : '#ef4444' 
+      }]);
 
-    refetchSales();
-    refetchTokenBalance();
-    refetchMatic();
+      if(type === "BUY") setHolders(prev => prev + 1);
   };
 
   const { data: hash, isPending, writeContract } = useWriteContract();
@@ -186,11 +176,16 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
     if (isConfirmed) { 
         toast.dismiss('tx'); 
         toast.success("Success!"); 
+        
+        // --- İŞTE BURASI: İŞLEM BİTER BİTMEZ LİSTEYE ZORLA EKLE ---
+        manualUpdate(activeTab === "buy" ? "BUY" : "SELL", amount);
+        
         setAmount(""); 
         refetchSales();
         refetchTokenBalance();
         refetchMatic();
-        setTimeout(fetchHistory, 2000); // 2 sn sonra listeyi tazele
+        // 2 saniye sonra gerçek veriyi de çekmeyi dene
+        setTimeout(fetchHistory, 2000);
     } 
   }, [isConfirmed]);
 
@@ -232,6 +227,7 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '32px' }}>
           <div style={{ gridColumn: '1 / -1', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '24px' }}>
             
+            {/* TOKEN INFO */}
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} style={{ display: 'flex', gap: '20px', padding: '24px', borderRadius: '20px', border: '1px solid rgba(253, 220, 17, 0.15)', background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.5), rgba(15, 23, 42, 0.7))', backdropFilter: 'blur(20px)', gridColumn: '1 / -1' }}>
               <img src={getTokenImage(tokenAddress)} alt="token" style={{ width: '80px', height: '80px', borderRadius: '16px', border: '1px solid rgba(253, 220, 17, 0.2)', objectFit: 'cover', flexShrink: 0 }} />
               <div style={{ flex: 1 }}>
@@ -241,14 +237,15 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
                 </div>
                 {desc && <p style={{ fontSize: '14px', color: '#94a3b8', marginBottom: '12px' }}>{desc}</p>}
                 <div style={{ display: 'flex', gap: '8px' }}>
-                  {twitter && <a href={twitter} target="_blank" rel="noopener noreferrer" style={{ padding: '8px', borderRadius: '8px', backgroundColor: 'rgba(30, 41, 59, 0.5)', border: '1px solid rgba(253, 220, 17, 0.1)', color: '#94a3b8', textDecoration: 'none', display: 'flex' }}><Twitter size={16} /></a>}
-                  {telegram && <a href={telegram} target="_blank" rel="noopener noreferrer" style={{ padding: '8px', borderRadius: '8px', backgroundColor: 'rgba(30, 41, 59, 0.5)', border: '1px solid rgba(253, 220, 17, 0.1)', color: '#94a3b8', textDecoration: 'none', display: 'flex' }}><Send size={16} /></a>}
-                  {web && <a href={web} target="_blank" rel="noopener noreferrer" style={{ padding: '8px', borderRadius: '8px', backgroundColor: 'rgba(30, 41, 59, 0.5)', border: '1px solid rgba(253, 220, 17, 0.1)', color: '#94a3b8', textDecoration: 'none', display: 'flex' }}><Globe size={16} /></a>}
+                  {twitter && <SocialIcon href={twitter} icon={<Twitter size={16} />} />}
+                  {telegram && <SocialIcon href={telegram} icon={<Send size={16} />} />}
+                  {web && <SocialIcon href={web} icon={<Globe size={16} />} />}
                   <a href={`https://polygonscan.com/address/${tokenAddress}`} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#94a3b8', textDecoration: 'none' }}><ExternalLink size={12} /> Explore</a>
                 </div>
               </div>
             </motion.div>
 
+            {/* CHART */}
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} style={{ borderRadius: '20px', border: '1px solid rgba(253, 220, 17, 0.15)', background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.5), rgba(15, 23, 42, 0.7))', backdropFilter: 'blur(20px)', padding: '24px', gridColumn: '1 / -1' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '24px' }}>
                 <div><div style={{ fontSize: '12px', color: '#94a3b8', fontWeight: '600' }}>Price</div><div style={{ fontSize: '32px', fontWeight: '900', marginTop: '4px' }}>{currentPrice.toFixed(6)} MATIC</div></div>
@@ -272,6 +269,7 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
               )}
             </motion.div>
 
+            {/* TRADES & COMMENTS */}
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} style={{ borderRadius: '20px', border: '1px solid rgba(253, 220, 17, 0.15)', background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.5), rgba(15, 23, 42, 0.7))', backdropFilter: 'blur(20px)', overflow: 'hidden', gridColumn: '1 / -1' }}>
               <div style={{ display: 'flex', borderBottom: '1px solid rgba(255, 255, 255, 0.05)' }}>
                 <button onClick={() => setBottomTab("trades")} style={{ flex: 1, padding: '16px', textAlign: 'center', fontSize: '14px', fontWeight: '700', color: bottomTab === "trades" ? '#fff' : '#94a3b8', backgroundColor: bottomTab === "trades" ? 'rgba(30, 41, 59, 0.6)' : 'transparent', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
@@ -333,7 +331,6 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
                 <div style={{ padding: '16px', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.1)', backgroundColor: 'rgba(30, 41, 59, 0.5)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px', fontSize: '12px', color: '#94a3b8' }}>
                     <span>Amount</span>
-                    {/* BAKIYE GÖSTERİMİ */}
                     <span>Bal: {activeTab === "buy" 
                         ? `${maticBalance?.formatted ? parseFloat(maticBalance.formatted).toFixed(4) : "0.00"} MATIC` 
                         : `${userTokenBalance ? parseFloat(formatEther(userTokenBalance as bigint)).toFixed(2) : "0.00"} ${symbol}`
@@ -395,3 +392,5 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
     </div>
   );
 }
+
+function SocialIcon({ icon, href }: { icon: any, href: string }) { return <a href={href} target="_blank" className="p-2 bg-[#2d1b4e] hover:bg-white/10 rounded-lg text-gray-400 hover:text-[#FDDC11] transition-colors cursor-pointer border border-white/5">{icon}</a>; }
