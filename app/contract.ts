@@ -1,7 +1,7 @@
 // app/contract.ts
 
-// BURAYA YENİ DEPLOY ETTİĞİN ADRESİ YAPIŞTIR:
-export const CONTRACT_ADDRESS = "0x1CdF04d7E171B861463564Faf927519AaF78CE50"; 
+// SENİN DEPLOY ETTİĞİN YENİ GÜVENLİ KONTRAT ADRESİ:
+export const CONTRACT_ADDRESS = "0x1CdF04d7E171B861463564Faf927519AaF78CE50";
 
 export const CONTRACT_ABI = [
   {
@@ -20,7 +20,7 @@ export const CONTRACT_ABI = [
   },
   {
     "inputs": [{"internalType": "address", "name": "", "type": "address"}],
-    "name": "tokenMetadata", // Yeni Okuma Fonksiyonu
+    "name": "tokenMetadata", // Metadata Okuma Fonksiyonu
     "outputs": [
       {"internalType": "string", "name": "description", "type": "string"},
       {"internalType": "string", "name": "twitter", "type": "string"},
@@ -30,7 +30,6 @@ export const CONTRACT_ABI = [
     "stateMutability": "view",
     "type": "function"
   },
-  // ... (Diğer standart fonksiyonlar aynı kalabilir ama createToken ve tokenMetadata kritik)
   {
     "inputs": [{"internalType": "address", "name": "tokenAddr", "type": "address"}],
     "name": "buy",
@@ -55,7 +54,8 @@ export const CONTRACT_ABI = [
       {"internalType": "address", "name": "creator", "type": "address"},
       {"internalType": "uint256", "name": "collateral", "type": "uint256"},
       {"internalType": "bool", "name": "migrated", "type": "bool"},
-      {"internalType": "uint256", "name": "tokensSold", "type": "uint256"}
+      {"internalType": "uint256", "name": "tokensSold", "type": "uint256"},
+      {"internalType": "uint256", "name": "creationTime", "type": "uint256"}
     ],
     "stateMutability": "view",
     "type": "function"
