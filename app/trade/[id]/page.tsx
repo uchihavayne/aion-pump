@@ -27,8 +27,6 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
   const [bottomTab, setBottomTab] = useState<"trades" | "chat">("trades");
   const [amount, setAmount] = useState("");
   const [isMounted, setIsMounted] = useState(false);
-  const [meta, setMeta] = useState<any>({}); // Varsayılan boş obje
-  
   const [chartData, setChartData] = useState<any[]>([]);
   const [tradeHistory, setTradeHistory] = useState<any[]>([]);
   const [comments, setComments] = useState<any[]>([]);
@@ -37,18 +35,17 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
 
   const { isConnected, address } = useAccount();
 
-  // VERİ ÇEKME HOOKLARI (isLoading Eklendi)
   const { data: userTokenBalance, refetch: refetchBalance } = useReadContract({
     address: tokenAddress, abi: erc20Abi, functionName: "balanceOf", args: [address as `0x${string}`], query: { enabled: !!address }
   });
 
   const { data: salesData, refetch: refetchSales } = useReadContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "sales", args: [tokenAddress] });
   
-  // İsim ve Sembol için isLoading durumunu kontrol ediyoruz
+  // Loading durumlarını alıyoruz
   const { data: name, isLoading: nameLoading } = useReadContract({ address: tokenAddress, abi: [{ name: "name", type: "function", inputs: [], outputs: [{ type: "string" }], stateMutability: "view" }], functionName: "name" });
   const { data: symbol, isLoading: symbolLoading } = useReadContract({ address: tokenAddress, abi: [{ name: "symbol", type: "function", inputs: [], outputs: [{ type: "string" }], stateMutability: "view" }], functionName: "symbol" });
-
-  // Metadata Çekme (Kontrattan)
+  
+  // Kontrattan Metadata Çekme
   const { data: metadata, isLoading: metaLoading } = useReadContract({
     address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "tokenMetadata", args: [tokenAddress]
   });
@@ -59,7 +56,6 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
   const realProgress = progress > 100 ? 100 : progress;
   const currentPrice = chartData.length > 0 ? chartData[chartData.length - 1].price : 0;
 
-  // Geçmişi Çek
   const fetchHistory = async () => {
     if (!publicClient) return;
     try {
@@ -106,7 +102,6 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
     if(storedComments) setComments(JSON.parse(storedComments));
   }, [tokenAddress, publicClient]);
 
-  // Canlı Eventler
   useWatchContractEvent({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, eventName: 'Buy', onLogs(logs: any) { processLiveLog(logs[0], "BUY"); } });
   useWatchContractEvent({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, eventName: 'Sell', onLogs(logs: any) { processLiveLog(logs[0], "SELL"); } });
 
@@ -154,7 +149,8 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
 
   if (!isMounted) { setIsMounted(true); return <div className="min-h-screen bg-[#1a0b2e]"/>; }
 
-  // Metadata Bağlantıları (Kontrattan gelen)
+  // METADATA PARSE
+  // Solidity'den dönen struct bir dizi gibi davranır: [desc, twitter, telegram, website]
   const desc = metadata ? metadata[0] : "";
   const twitter = metadata ? metadata[1] : "";
   const telegram = metadata ? metadata[2] : "";
@@ -181,20 +177,11 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
                 <div className="w-16 h-16 bg-[#2d1b4e] rounded-xl border border-white/10 overflow-hidden shadow-lg"><img src={getTokenImage(tokenAddress)} className="w-full h-full object-cover"/></div>
                 <div className="flex-1">
                     <div className="flex items-center gap-3">
-                        {/* LOADING DUZELTMESİ: İSİM YERİNE SKELETON */}
-                        {nameLoading ? (
-                            <div className="h-8 w-40 bg-white/10 rounded animate-pulse"></div>
-                        ) : (
-                            <h1 className="text-2xl font-bold text-white">{name?.toString()}</h1>
-                        )}
-                        
-                        {symbolLoading ? (
-                            <div className="h-6 w-16 bg-white/10 rounded animate-pulse"></div>
-                        ) : (
-                            <span className="text-sm font-bold text-gray-400">[{symbol?.toString()}]</span>
-                        )}
+                        {/* SKELETON LOADING: Yüklenirken gri kutu göster */}
+                        {nameLoading ? <div className="h-8 w-40 bg-white/10 rounded animate-pulse"/> : <h1 className="text-2xl font-bold text-white">{name?.toString()}</h1>}
+                        {symbolLoading ? <div className="h-6 w-16 bg-white/10 rounded animate-pulse"/> : <span className="text-sm font-bold text-gray-400">[{symbol?.toString()}]</span>}
                     </div>
-                    {/* AÇIKLAMA (DESCRIPTION) */}
+                    {/* AÇIKLAMA */}
                     {desc && <p className="text-sm text-gray-400 mt-2 line-clamp-2">{desc}</p>}
 
                     <div className="flex items-center gap-4 mt-3">
