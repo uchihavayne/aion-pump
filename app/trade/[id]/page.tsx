@@ -148,7 +148,20 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
   if (!isMounted) return null;
 
   return (
-    <div className="min-h-screen bg-black text-white">
+    <div className="min-h-screen bg-gradient-to-br from-[#0a0e27] via-black to-[#0a0e27] text-white relative overflow-hidden">
+      {/* Animated Background */}
+      <div className="fixed inset-0 overflow-hidden pointer-events-none">
+        <motion.div
+          animate={{ rotate: 360 }}
+          transition={{ duration: 25, repeat: Infinity, ease: "linear" }}
+          className="absolute -top-1/2 -right-1/4 w-96 h-96 rounded-full opacity-20"
+          style={{
+            background: 'radial-gradient(circle, rgba(253, 220, 17, 0.3), transparent)',
+            filter: 'blur(60px)'
+          }}
+        />
+      </div>
+
       <Toaster position="top-right" toastOptions={{ style: { background: '#1a1a1a', color: '#fff', border: '1px solid #333' } }} />
       
       {/* Header */}
@@ -160,21 +173,21 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
           </Link>
           
           <div className="flex items-center gap-3">
-            <div className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-white/5 rounded-lg border border-white/10 text-xs text-gray-400 font-mono">
+            <div className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-white/5 rounded-lg border border-white/10 text-xs text-gray-400 font-mono hover:border-[#FDDC11]/30 transition-colors cursor-pointer" onClick={() => {navigator.clipboard.writeText(tokenAddress); toast.success("Copied!")}}>
               <span className="text-[#FDDC11]">CA:</span> {tokenAddress.slice(0,6)}...{tokenAddress.slice(-4)}
-              <Copy size={12} className="cursor-pointer hover:text-white" onClick={() => {navigator.clipboard.writeText(tokenAddress); toast.success("Copied!")}}/>
+              <Copy size={12} />
             </div>
             <div className="scale-90"><ConnectButton showBalance={false} accountStatus="avatar" chainStatus="none" /></div>
           </div>
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8 grid grid-cols-1 lg:grid-cols-3 gap-8">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8 grid grid-cols-1 lg:grid-cols-3 gap-8 relative z-10">
         
         {/* Left Column */}
         <div className="lg:col-span-2 space-y-6">
           {/* Token Header */}
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="flex items-start gap-4">
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="flex items-start gap-4 p-6 rounded-2xl border border-white/10 bg-gradient-to-br from-white/5 to-white/0 backdrop-blur-md">
             <img src={getTokenImage(tokenAddress)} alt="token" className="w-20 h-20 rounded-xl border border-white/20 object-cover" />
             <div className="flex-1">
               <div className="flex items-center gap-3 mb-2">
@@ -186,7 +199,7 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
                 {twitter && <a href={twitter} target="_blank" className="p-2 rounded-lg bg-white/5 hover:bg-white/10 transition-colors"><Twitter size={14} /></a>}
                 {telegram && <a href={telegram} target="_blank" className="p-2 rounded-lg bg-white/5 hover:bg-white/10 transition-colors"><Send size={14} /></a>}
                 {web && <a href={web} target="_blank" className="p-2 rounded-lg bg-white/5 hover:bg-white/10 transition-colors"><Globe size={14} /></a>}
-                <a href={`https://polygonscan.com/address/${tokenAddress}`} target="_blank" className="flex items-center gap-1 text-xs text-gray-400 hover:text-white"><ExternalLink size={12}/> Explore</a>
+                <a href={`https://polygonscan.com/address/${tokenAddress}`} target="_blank" className="flex items-center gap-1 text-xs text-gray-400 hover:text-white transition-colors"><ExternalLink size={12}/> Explore</a>
               </div>
             </div>
           </motion.div>
@@ -216,7 +229,7 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
                   <XAxis dataKey="name" stroke="#666" style={{ fontSize: '12px' }} />
                   <YAxis domain={['auto', 'auto']} stroke="#666" style={{ fontSize: '12px' }} />
                   <Tooltip contentStyle={{ backgroundColor: '#1a1a1a', border: '1px solid #333', borderRadius: '8px' }} />
-                  <Line type="monotone" dataKey="price" stroke="#FDDC11" dot={false} isAnimationActive={false} />
+                  <Line type="monotone" dataKey="price" stroke="#FDDC11" dot={false} isAnimationActive={false} strokeWidth={2} />
                 </LineChart>
               </ResponsiveContainer>
             ) : (
@@ -244,7 +257,7 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
                     <div className="text-center py-8 text-gray-500 text-sm">No trades yet</div>
                   ) : (
                     tradeHistory.map((trade, i) => (
-                      <div key={i} className="flex items-center justify-between p-3 rounded-lg bg-white/5 border border-white/10 text-xs">
+                      <div key={i} className="flex items-center justify-between p-3 rounded-lg bg-white/5 border border-white/10 text-xs hover:border-white/20 transition-colors">
                         <div className="font-mono text-gray-400">{trade.user.slice(0,6)}...</div>
                         <div className={trade.type === "BUY" ? "text-green-400 font-bold" : "text-red-400 font-bold"}>{trade.type}</div>
                         <div className="text-white">{trade.amount} MATIC</div>
@@ -256,7 +269,7 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
                 <div className="space-y-3">
                   <div className="max-h-64 overflow-y-auto space-y-2">
                     {comments.map((c, i) => (
-                      <div key={i} className="p-3 rounded-lg bg-white/5 border border-white/10">
+                      <div key={i} className="p-3 rounded-lg bg-white/5 border border-white/10 hover:border-white/20 transition-colors">
                         <div className="flex items-center gap-2 mb-1">
                           <User size={12} className="text-[#FDDC11]" />
                           <span className="text-xs font-bold">{c.user}</span>
@@ -273,9 +286,9 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
                       onChange={(e) => setCommentInput(e.target.value)}
                       onKeyPress={(e) => e.key === 'Enter' && handleComment()}
                       placeholder="Write a comment..." 
-                      className="flex-1 px-4 py-2 rounded-lg border border-white/10 bg-white/5 text-white placeholder-gray-600 text-xs focus:border-[#FDDC11] focus:outline-none"
+                      className="flex-1 px-4 py-2 rounded-lg border border-white/10 bg-white/5 text-white placeholder-gray-600 text-xs focus:border-[#FDDC11] focus:outline-none transition-colors"
                     />
-                    <button onClick={handleComment} className="p-2.5 bg-[#FDDC11] text-black rounded-lg hover:bg-[#ffe55c] transition-colors">
+                    <button onClick={handleComment} className="p-2.5 bg-[#FDDC11] text-black rounded-lg hover:bg-[#ffe55c] transition-colors font-bold">
                       <Send size={14} />
                     </button>
                   </div>
@@ -292,13 +305,13 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
             <div className="grid grid-cols-2 gap-3 mb-6">
               <button 
                 onClick={() => setActiveTab("buy")}
-                className={`py-3 rounded-xl font-bold text-sm transition-all ${activeTab === "buy" ? "bg-green-500/20 border border-green-500/50 text-green-400" : "bg-white/10 border border-white/10 text-gray-400"}`}
+                className={`py-3 rounded-xl font-bold text-sm transition-all ${activeTab === "buy" ? "bg-gradient-to-br from-green-500/30 to-green-600/20 border border-green-500/50 text-green-400 shadow-lg shadow-green-500/20" : "bg-white/5 border border-white/10 text-gray-400 hover:bg-white/10"}`}
               >
                 Buy
               </button>
               <button 
                 onClick={() => setActiveTab("sell")}
-                className={`py-3 rounded-xl font-bold text-sm transition-all ${activeTab === "sell" ? "bg-red-500/20 border border-red-500/50 text-red-400" : "bg-white/10 border border-white/10 text-gray-400"}`}
+                className={`py-3 rounded-xl font-bold text-sm transition-all ${activeTab === "sell" ? "bg-gradient-to-br from-red-500/30 to-red-600/20 border border-red-500/50 text-red-400 shadow-lg shadow-red-500/20" : "bg-white/5 border border-white/10 text-gray-400 hover:bg-white/10"}`}
               >
                 Sell
               </button>
@@ -327,7 +340,7 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
                   <button
                     key={v}
                     onClick={() => setAmount(v)}
-                    className="py-2 rounded-lg border border-white/10 bg-white/5 text-xs font-bold text-white hover:bg-white/10 transition-colors"
+                    className="py-2 rounded-lg border border-white/10 bg-white/5 text-xs font-bold text-white hover:bg-white/10 hover:border-[#FDDC11]/30 transition-colors"
                   >
                     {v}
                   </button>
@@ -337,10 +350,10 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
               <button
                 onClick={handleTx}
                 disabled={isPending || isConfirming || !isConnected}
-                className={`w-full py-3.5 rounded-xl font-black text-sm transition-all ${
+                className={`w-full py-3.5 rounded-xl font-black text-sm transition-all shadow-lg ${
                   activeTab === "buy"
-                    ? "bg-green-500 hover:bg-green-600 text-white"
-                    : "bg-red-500 hover:bg-red-600 text-white"
+                    ? "bg-gradient-to-r from-green-500 to-green-600 hover:from-green-400 hover:to-green-500 text-white shadow-green-500/30"
+                    : "bg-gradient-to-r from-red-500 to-red-600 hover:from-red-400 hover:to-red-500 text-white shadow-red-500/30"
                 } disabled:opacity-50 disabled:cursor-not-allowed`}
               >
                 {isPending ? "Processing..." : activeTab === "buy" ? "BUY" : "SELL"}
@@ -356,19 +369,19 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
                 <span></span>
                 <span className="text-white font-bold">{realProgress.toFixed(1)}%</span>
               </div>
-              <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+              <div className="h-2 bg-white/10 rounded-full overflow-hidden">
                 <motion.div 
-                  className="h-full bg-gradient-to-r from-[#FDDC11] to-purple-500"
+                  className="h-full bg-gradient-to-r from-[#FDDC11] to-purple-500 shadow-lg shadow-[#FDDC11]/30"
                   animate={{ width: `${realProgress}%` }}
                   transition={{ duration: 0.5 }}
                 />
               </div>
             </div>
 
-            <div className="space-y-2 text-xs border-t border-white/10 pt-4">
-              <div className="flex justify-between"><span className="text-gray-400">Market Cap</span><span className="text-white font-semibold">${(parseFloat(collateral) * 3200).toLocaleString()}</span></div>
-              <div className="flex justify-between"><span className="text-gray-400">Collateral</span><span className="text-white font-semibold">{parseFloat(collateral).toFixed(4)} MATIC</span></div>
-              <div className="flex justify-between"><span className="text-gray-400">Total Supply</span><span className="text-white font-semibold">1,000,000,000</span></div>
+            <div className="space-y-3 text-xs border-t border-white/10 pt-4">
+              <div className="flex justify-between p-2 rounded-lg hover:bg-white/5 transition-colors"><span className="text-gray-400">Market Cap</span><span className="text-white font-semibold">${(parseFloat(collateral) * 3200).toLocaleString()}</span></div>
+              <div className="flex justify-between p-2 rounded-lg hover:bg-white/5 transition-colors"><span className="text-gray-400">Collateral</span><span className="text-white font-semibold">{parseFloat(collateral).toFixed(4)} MATIC</span></div>
+              <div className="flex justify-between p-2 rounded-lg hover:bg-white/5 transition-colors"><span className="text-gray-400">Total Supply</span><span className="text-white font-semibold">1,000,000,000</span></div>
             </div>
           </div>
         </motion.div>
