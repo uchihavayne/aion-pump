@@ -1,38 +1,37 @@
 "use client";
 
 import { useState, useEffect } from "react";
-// Gerekli ikonlar
-import { Rocket, X, Search, Plus, TrendingUp, Activity, Users, Coins, Twitter, Send, Globe } from "lucide-react";
+// Icons
+import { Rocket, X, Search, TrendingUp, Activity, Users, Coins, Twitter, Send, Globe } from "lucide-react";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import Link from "next/link";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import { useWriteContract, useWaitForTransactionReceipt, useReadContract, useWatchContractEvent } from "wagmi"; 
 import { parseEther, formatEther } from "viem";
 import { CONTRACT_ADDRESS, CONTRACT_ABI } from "./contract";
 import toast, { Toaster } from 'react-hot-toast';
 
-// --- GÖRSELDEKİNE BENZER GENERATIVE AVATAR ---
+// --- GENERATIVE AVATAR ---
 const getTokenImage = (address: string) => 
   `https://api.dyneui.com/avatar/abstract?seed=${address}&size=400&background=000000&color=FDDC11&pattern=circuit&variance=0.7`;
 
-// TOKEN KARTI (Senin tasarım diline uyumlu)
+// TOKEN CARD (Cleaned up - No Fake Data)
 function DarkTokenCard({ tokenAddress }: { tokenAddress: `0x${string}` }) {
   const [hovering, setHovering] = useState(false);
   
-  // Kontrat verilerini çek
+  // Fetch Contract Data
   const { data: salesData } = useReadContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "sales", args: [tokenAddress] });
   const { data: name } = useReadContract({ address: tokenAddress, abi: [{ name: "name", type: "function", inputs: [], outputs: [{ type: "string" }], stateMutability: "view" }], functionName: "name" });
   const { data: symbol } = useReadContract({ address: tokenAddress, abi: [{ name: "symbol", type: "function", inputs: [], outputs: [{ type: "string" }], stateMutability: "view" }], functionName: "symbol" });
 
   const collateral = salesData ? formatEther(salesData[1] as bigint) : "0";
   const tokensSold = salesData ? (salesData[3] as bigint) : 0n;
+  
+  // Calculate Progress
+  // Assuming 800,000,000 tokens is the bonding curve target (adjust if your contract is different)
   const progress = Number((tokensSold * 100n) / 800000000000000000000000000n);
   const realProgress = progress > 100 ? 100 : progress;
   const tokenImage = getTokenImage(tokenAddress);
-  
-  // Rastgele değişim verisi (demo amaçlı)
-  const change24h = (Math.random() * 30 - 10).toFixed(1);
-  const isPositive = parseFloat(change24h) >= 0;
 
   return (
     <Link href={`/trade/${tokenAddress}`}>
@@ -47,7 +46,7 @@ function DarkTokenCard({ tokenAddress }: { tokenAddress: `0x${string}` }) {
           height: '100%',
           borderRadius: '16px',
           border: hovering ? '1px solid rgba(253, 220, 17, 0.4)' : '1px solid rgba(253, 220, 17, 0.1)',
-          background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.4), rgba(15, 23, 42, 0.6))', // Daha koyu, modern
+          background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.4), rgba(15, 23, 42, 0.6))',
           backdropFilter: 'blur(10px)',
           padding: '20px',
           transition: 'all 0.3s ease',
@@ -83,13 +82,7 @@ function DarkTokenCard({ tokenAddress }: { tokenAddress: `0x${string}` }) {
               }}>
                 {symbol?.toString() || "TKR"}
               </span>
-              <span style={{
-                fontSize: '12px',
-                fontWeight: 'bold',
-                color: isPositive ? '#4ade80' : '#f87171'
-              }}>
-                {isPositive ? '↗' : '↘'} {change24h}%
-              </span>
+              {/* Removed fake percentage change */}
             </div>
           </div>
         </div>
@@ -123,10 +116,7 @@ function DarkTokenCard({ tokenAddress }: { tokenAddress: `0x${string}` }) {
               <Coins size={14} className="text-[#FDDC11]" />
               <span>{parseFloat(collateral).toFixed(2)} MATIC</span>
            </div>
-           <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <Users size={14} className="text-purple-400" />
-              <span>{(Math.random() * 200 + 20).toFixed(0)}</span>
-           </div>
+           {/* Removed fake 'Users' count */}
         </div>
       </motion.div>
     </Link>
@@ -144,16 +134,33 @@ export default function HomePage() {
   
   useEffect(() => { 
     if (allTokens) { 
-      const tokens = [...allTokens].reverse() as string[];
-      setOrderedTokens(tokens.slice(0, 12));
+      // Cast to string[] because Wagmi types can sometimes be inferred loosely
+      const tokens = [...(allTokens as string[])].reverse();
+      setOrderedTokens(tokens);
     } 
   }, [allTokens]);
 
   // Event Listeners (Logic)
-  useWatchContractEvent({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, eventName: 'Buy', onLogs(logs: any) { updateOrder(logs[0].args.token); } });
-  useWatchContractEvent({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, eventName: 'TokenCreated', onLogs(logs: any) { 
-      if (logs[0]?.args?.token) { setOrderedTokens(prev => [logs[0].args.token, ...prev]); toast.success("New Launch!"); } 
-  }});
+  useWatchContractEvent({ 
+    address: CONTRACT_ADDRESS, 
+    abi: CONTRACT_ABI, 
+    eventName: 'Buy', 
+    onLogs(logs: any) { 
+      if(logs[0]?.args?.token) updateOrder(logs[0].args.token); 
+    } 
+  });
+  
+  useWatchContractEvent({ 
+    address: CONTRACT_ADDRESS, 
+    abi: CONTRACT_ABI, 
+    eventName: 'TokenCreated', 
+    onLogs(logs: any) { 
+      if (logs[0]?.args?.token) { 
+        setOrderedTokens(prev => [logs[0].args.token, ...prev]); 
+        toast.success("New Launch!"); 
+      } 
+    }
+  });
 
   const updateOrder = (token: string) => {
       setOrderedTokens(prev => [token, ...prev.filter(t => t.toLowerCase() !== token.toLowerCase())]);
@@ -189,12 +196,12 @@ export default function HomePage() {
       minHeight: '100vh',
       fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
       position: 'relative',
-      overflow: 'hidden', // Sayfa taşmasını engeller
-      backgroundImage: 'radial-gradient(circle at 50% 0%, #1e1b4b 0%, #0a0e27 60%)' // Hafif tepe ışığı
+      overflow: 'hidden', 
+      backgroundImage: 'radial-gradient(circle at 50% 0%, #1e1b4b 0%, #0a0e27 60%)' 
     }}>
       <Toaster position="top-center" toastOptions={{ style: { background: '#1F2128', color: '#fff', border: '1px solid #333' } }} />
 
-      {/* Arka Plan Efektleri */}
+      {/* Background Effects */}
       <div style={{ position: 'fixed', top: '-20%', right: '-10%', width: '600px', height: '600px', background: 'radial-gradient(circle, rgba(253,220,17,0.08) 0%, transparent 70%)', filter: 'blur(80px)', zIndex: 0 }} />
       <div style={{ position: 'fixed', bottom: '-20%', left: '-10%', width: '600px', height: '600px', background: 'radial-gradient(circle, rgba(147,51,234,0.08) 0%, transparent 70%)', filter: 'blur(80px)', zIndex: 0 }} />
 
@@ -231,13 +238,13 @@ export default function HomePage() {
           </p>
         </div>
 
-        {/* Stats Grid */}
+        {/* Stats Grid - Fixed / Placeholder Values for Real Deployment */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '40px' }}>
            {[
-             { label: 'Pairs', val: orderedTokens.length, icon: <Coins size={20} className="text-[#FDDC11]" /> },
-             { label: 'Volume', val: '$2.4M', icon: <Activity size={20} className="text-purple-400" /> },
-             { label: 'Traders', val: '1.8K', icon: <Users size={20} className="text-blue-400" /> },
-             { label: 'Avg ROI', val: '240%', icon: <TrendingUp size={20} className="text-green-400" /> }
+             { label: 'Pairs', val: orderedTokens.length.toString(), icon: <Coins size={20} className="text-[#FDDC11]" /> },
+             { label: 'Volume', val: '0', icon: <Activity size={20} className="text-purple-400" /> }, // Volume requires indexing
+             { label: 'Traders', val: '0', icon: <Users size={20} className="text-blue-400" /> }, // Traders requires indexing
+             { label: 'Avg ROI', val: '0%', icon: <TrendingUp size={20} className="text-green-400" /> } // ROI requires indexing
            ].map((s, i) => (
              <div key={i} style={{ background: 'rgba(30, 41, 59, 0.3)', border: '1px solid rgba(255, 255, 255, 0.05)', borderRadius: '12px', padding: '16px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
@@ -274,19 +281,25 @@ export default function HomePage() {
 
         {/* Token Grid */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '20px' }}>
-           {orderedTokens.map((addr, i) => <DarkTokenCard key={addr} tokenAddress={addr as `0x${string}`} />)}
+           {orderedTokens.length > 0 ? (
+             orderedTokens.map((addr, i) => <DarkTokenCard key={addr} tokenAddress={addr as `0x${string}`} />)
+           ) : (
+             <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '40px', color: '#94a3b8' }}>
+               No tokens created yet. Be the first to launch!
+             </div>
+           )}
         </div>
       </main>
 
-      {/* --- MODAL (SENİN İSTEDİĞİN GİBİ TAM ORTADA) --- */}
+      {/* --- MODAL --- */}
       {isModalOpen && (
         <div style={{
           position: 'fixed',
           inset: 0,
           zIndex: 9999,
           display: 'flex',
-          alignItems: 'center', // Dikey ortalama
-          justifyContent: 'center', // Yatay ortalama
+          alignItems: 'center', 
+          justifyContent: 'center', 
           padding: '16px'
         }}>
           {/* Backdrop */}
@@ -311,7 +324,7 @@ export default function HomePage() {
               backgroundColor: 'rgba(15, 23, 42, 0.95)',
               borderRadius: '20px',
               border: '1px solid rgba(253, 220, 17, 0.3)',
-              boxShadow: '0 0 50px rgba(253, 220, 17, 0.15)', // Glow Effect
+              boxShadow: '0 0 50px rgba(253, 220, 17, 0.15)',
               overflow: 'hidden'
             }}
           >
