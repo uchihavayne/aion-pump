@@ -14,6 +14,13 @@ import { motion } from "framer-motion";
 const getTokenImage = (address: string) => 
   `https://api.dyneui.com/avatar/abstract?seed=${address}&size=400&background=000000&color=FDDC11&pattern=circuit&variance=0.7`;
 
+// Büyük sayıları k/M olarak formatlayan fonksiyon (Örn: 438.84k)
+const formatTokenAmount = (num: number) => {
+  if (num >= 1000000) return (num / 1000000).toFixed(2) + "M";
+  if (num >= 1000) return (num / 1000).toFixed(2) + "k";
+  return num.toFixed(2);
+};
+
 const CustomCandle = (props: any) => {
   const { x, y, width, height, fill } = props;
   return <rect x={x} y={y} width={width} height={Math.max(height, 2)} fill={fill} rx={2} />;
@@ -65,11 +72,10 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
   const telegram = metadata ? metadata[2] : "";
   const web = metadata ? metadata[3] : "";
 
-  // 4. GEÇMİŞ İŞLEMLERİ ÇEKME (SAFE MODE)
+  // 4. GEÇMİŞ İŞLEMLERİ ÇEKME
   const fetchHistory = async () => {
     if (!publicClient) return;
     try {
-      // Filtreleme yapmadan tüm eventleri çekip JS ile filtreliyoruz (RPC hatasını önler)
       const [buyLogs, sellLogs] = await Promise.all([
         publicClient.getContractEvents({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, eventName: 'Buy', fromBlock: 'earliest' }),
         publicClient.getContractEvents({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, eventName: 'Sell', fromBlock: 'earliest' })
@@ -99,7 +105,8 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
         newTrades.unshift({
           user: event.args.buyer || event.args.seller,
           type: event.type,
-          amount: maticVal.toFixed(4),
+          maticAmount: maticVal.toFixed(4),
+          tokenAmount: tokenVal, // Ham veri sakla, render ederken formatla
           price: executionPrice.toFixed(8),
           time: `Blk ${event.blockNumber}`
         });
@@ -121,39 +128,41 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
 
   useEffect(() => {
     fetchHistory();
+    const interval = setInterval(fetchHistory, 5000);
     const storedComments = localStorage.getItem(`comments_${tokenAddress}`);
     if(storedComments) setComments(JSON.parse(storedComments));
+    return () => clearInterval(interval);
   }, [tokenAddress, publicClient]);
 
-  // 5. MANUEL GÜNCELLEME (OPTIMISTIC UPDATE)
-  const manualUpdate = (type: "BUY" | "SELL", amountInput: string) => {
-      const val = parseFloat(amountInput);
-      if (!val || val <= 0) return;
+  // CANLI EVENT DİNLEME
+  useWatchContractEvent({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, eventName: 'Buy', onLogs(logs: any) { processLiveLog(logs[0], "BUY"); } });
+  useWatchContractEvent({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, eventName: 'Sell', onLogs(logs: any) { processLiveLog(logs[0], "SELL"); } });
 
-      const estimatedPrice = currentPrice; // Kabaca son fiyatı kullanıyoruz anlık gösterim için
-      const estimatedTokens = type === "BUY" ? val / estimatedPrice : val;
-      const displayAmount = type === "BUY" ? val : (val * estimatedPrice);
+  const processLiveLog = (log: any, type: "BUY" | "SELL") => {
+    if(log.args.token.toLowerCase() !== tokenAddress.toLowerCase()) return;
+    if(processedTxHashes.current.has(log.transactionHash)) return;
+    processedTxHashes.current.add(log.transactionHash);
 
-      const newTrade = {
-          user: address || "You",
-          type: type,
-          amount: displayAmount.toFixed(4),
-          price: estimatedPrice.toFixed(8),
-          time: "Just now"
-      };
+    const maticVal = parseFloat(formatEther(log.args.amountMATIC || 0n));
+    const tokenVal = parseFloat(formatEther(log.args.amountTokens || 0n));
+    const executionPrice = tokenVal > 0 ? maticVal / tokenVal : (chartData.length > 0 ? chartData[chartData.length-1].price : 0);
+    
+    setChartData(prev => [...prev, { name: "New", price: executionPrice, isUp: type === "BUY", fill: type === "BUY" ? '#10b981' : '#ef4444' }]);
+    
+    setTradeHistory(prev => [{ 
+        user: type === "BUY" ? log.args.buyer : log.args.seller, 
+        type: type, 
+        maticAmount: maticVal.toFixed(4),
+        tokenAmount: tokenVal,
+        price: executionPrice.toFixed(8),
+        time: "Just now" 
+    }, ...prev]);
 
-      // Listeye anında ekle
-      setTradeHistory(prev => [newTrade, ...prev]);
-      
-      // Grafiğe anında ekle
-      setChartData(prev => [...prev, { 
-          name: "New", 
-          price: estimatedPrice, 
-          isUp: type === "BUY", 
-          fill: type === "BUY" ? '#10b981' : '#ef4444' 
-      }]);
+    if (type === "BUY") setHolders(prev => prev + 1);
 
-      if(type === "BUY") setHolders(prev => prev + 1);
+    refetchSales();
+    refetchTokenBalance();
+    refetchMatic();
   };
 
   const { data: hash, isPending, writeContract } = useWriteContract();
@@ -177,15 +186,28 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
         toast.dismiss('tx'); 
         toast.success("Success!"); 
         
-        // --- İŞTE BURASI: İŞLEM BİTER BİTMEZ LİSTEYE ZORLA EKLE ---
-        manualUpdate(activeTab === "buy" ? "BUY" : "SELL", amount);
-        
+        // OPTIMISTIC UI UPDATE (Anında Ekrana Düşmesi İçin)
+        const val = parseFloat(amount);
+        const estPrice = currentPrice > 0 ? currentPrice : 0.000001;
+        const estTokens = activeTab === "buy" ? val / estPrice : val;
+        const estMatic = activeTab === "buy" ? val : val * estPrice;
+
+        const newTrade = {
+            user: address || "You",
+            type: activeTab === "buy" ? "BUY" : "SELL",
+            maticAmount: estMatic.toFixed(4),
+            tokenAmount: estTokens,
+            price: estPrice.toFixed(8),
+            time: "Just now"
+        };
+        setTradeHistory(prev => [newTrade, ...prev]);
+        setChartData(prev => [...prev, { name: "New", price: estPrice, isUp: activeTab === "buy", fill: activeTab === "buy" ? '#10b981' : '#ef4444' }]);
+
         setAmount(""); 
         refetchSales();
         refetchTokenBalance();
         refetchMatic();
-        // 2 saniye sonra gerçek veriyi de çekmeyi dene
-        setTimeout(fetchHistory, 2000);
+        setTimeout(fetchHistory, 2000); 
     } 
   }, [isConfirmed]);
 
@@ -227,7 +249,6 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '32px' }}>
           <div style={{ gridColumn: '1 / -1', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '24px' }}>
             
-            {/* TOKEN INFO */}
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} style={{ display: 'flex', gap: '20px', padding: '24px', borderRadius: '20px', border: '1px solid rgba(253, 220, 17, 0.15)', background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.5), rgba(15, 23, 42, 0.7))', backdropFilter: 'blur(20px)', gridColumn: '1 / -1' }}>
               <img src={getTokenImage(tokenAddress)} alt="token" style={{ width: '80px', height: '80px', borderRadius: '16px', border: '1px solid rgba(253, 220, 17, 0.2)', objectFit: 'cover', flexShrink: 0 }} />
               <div style={{ flex: 1 }}>
@@ -245,7 +266,6 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
               </div>
             </motion.div>
 
-            {/* CHART */}
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} style={{ borderRadius: '20px', border: '1px solid rgba(253, 220, 17, 0.15)', background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.5), rgba(15, 23, 42, 0.7))', backdropFilter: 'blur(20px)', padding: '24px', gridColumn: '1 / -1' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '24px' }}>
                 <div><div style={{ fontSize: '12px', color: '#94a3b8', fontWeight: '600' }}>Price</div><div style={{ fontSize: '32px', fontWeight: '900', marginTop: '4px' }}>{currentPrice.toFixed(6)} MATIC</div></div>
@@ -269,7 +289,6 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
               )}
             </motion.div>
 
-            {/* TRADES & COMMENTS */}
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} style={{ borderRadius: '20px', border: '1px solid rgba(253, 220, 17, 0.15)', background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.5), rgba(15, 23, 42, 0.7))', backdropFilter: 'blur(20px)', overflow: 'hidden', gridColumn: '1 / -1' }}>
               <div style={{ display: 'flex', borderBottom: '1px solid rgba(255, 255, 255, 0.05)' }}>
                 <button onClick={() => setBottomTab("trades")} style={{ flex: 1, padding: '16px', textAlign: 'center', fontSize: '14px', fontWeight: '700', color: bottomTab === "trades" ? '#fff' : '#94a3b8', backgroundColor: bottomTab === "trades" ? 'rgba(30, 41, 59, 0.6)' : 'transparent', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
@@ -285,14 +304,25 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
                     {tradeHistory.length === 0 ? (
                       <div style={{ textAlign: 'center', padding: '32px 16px', color: '#64748b', fontSize: '14px' }}>No trades yet</div>
                     ) : (
-                      tradeHistory.map((trade, i) => (
-                        <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px', borderRadius: '10px', backgroundColor: 'rgba(255, 255, 255, 0.05)', border: '1px solid rgba(253, 220, 17, 0.1)', fontSize: '12px' }}>
-                          <div style={{ fontFamily: 'monospace', color: '#94a3b8' }}>{trade.user.slice(0,6)}...</div>
-                          <div style={{ color: trade.type === "BUY" ? '#10b981' : '#ef4444', fontWeight: '700' }}>{trade.type}</div>
-                          <div style={{ color: '#fff' }}>{trade.amount} MATIC</div>
-                          <div style={{ textAlign: 'right', color: '#64748b' }}>{trade.price}</div>
+                      // YENİ TRADE LİSTESİ TASARIMI (User | Type | MATIC | Tokens | Price)
+                      <div className="flex flex-col gap-1">
+                        <div className="grid grid-cols-5 text-[10px] font-bold text-gray-500 uppercase px-3 pb-2">
+                            <div>User</div>
+                            <div>Type</div>
+                            <div>MATIC</div>
+                            <div>Tokens</div>
+                            <div className="text-right">Price</div>
                         </div>
-                      ))
+                        {tradeHistory.map((trade, i) => (
+                            <div key={i} className="grid grid-cols-5 text-xs py-3 px-3 hover:bg-white/5 rounded-lg transition-colors border-b border-white/5 last:border-0">
+                                <div className="font-mono text-gray-400">{trade.user.slice(0,6)}...</div>
+                                <div className={trade.type === "BUY" ? "text-green-500 font-bold" : "text-red-500 font-bold"}>{trade.type}</div>
+                                <div className="text-white">{trade.maticAmount}</div>
+                                <div className="text-white">{formatTokenAmount(trade.tokenAmount)}</div>
+                                <div className="text-right text-gray-500">{trade.price}</div>
+                            </div>
+                        ))}
+                      </div>
                     )}
                   </div>
                 ) : (
