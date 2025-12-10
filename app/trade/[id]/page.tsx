@@ -14,7 +14,6 @@ import { motion } from "framer-motion";
 const getTokenImage = (address: string) => 
   `https://api.dyneui.com/avatar/abstract?seed=${address}&size=400&background=000000&color=FDDC11&pattern=circuit&variance=0.7`;
 
-// Büyük sayıları k/M olarak formatlayan fonksiyon (Örn: 438.84k)
 const formatTokenAmount = (num: number) => {
   if (num >= 1000000) return (num / 1000000).toFixed(2) + "M";
   if (num >= 1000) return (num / 1000).toFixed(2) + "k";
@@ -36,7 +35,7 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
   const [amount, setAmount] = useState("");
   const [isMounted, setIsMounted] = useState(false);
   
-  // DATA STATES
+  // DATA
   const [chartData, setChartData] = useState<any[]>([]);
   const [tradeHistory, setTradeHistory] = useState<any[]>([]);
   const [holders, setHolders] = useState<number>(1);
@@ -46,47 +45,60 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
 
   const { isConnected, address } = useAccount();
 
-  // 1. GERÇEK MATIC BAKİYESİ
+  // 1. BAKİYELER
   const { data: maticBalance, refetch: refetchMatic } = useBalance({ address: address });
-
-  // 2. TOKEN BAKİYESİ
   const { data: userTokenBalance, refetch: refetchTokenBalance } = useReadContract({
     address: tokenAddress, abi: erc20Abi, functionName: "balanceOf", args: [address as `0x${string}`], query: { enabled: !!address }
   });
 
-  // 3. KONTRAT VERİLERİ
+  // 2. KONTRAT BİLGİLERİ
   const { data: salesData, refetch: refetchSales } = useReadContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "sales", args: [tokenAddress] });
   const { data: name } = useReadContract({ address: tokenAddress, abi: [{ name: "name", type: "function", inputs: [], outputs: [{ type: "string" }], stateMutability: "view" }], functionName: "name" });
   const { data: symbol } = useReadContract({ address: tokenAddress, abi: [{ name: "symbol", type: "function", inputs: [], outputs: [{ type: "string" }], stateMutability: "view" }], functionName: "symbol" });
   const { data: metadata } = useReadContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "tokenMetadata", args: [tokenAddress] });
 
-  const collateral = salesData ? formatEther(salesData[1] as bigint) : "0";
-  const tokensSold = salesData ? (salesData[3] as bigint) : 0n;
-  const progress = Number((tokensSold * 100n) / 1000000000000000000000000000n);
+  // 3. HESAPLAMALAR
+  // Yeni kontratta reserve değerleri var, ona göre bonding curve progress hesaplıyoruz
+  const virtualMatic = salesData ? salesData[1] : 0n; // Reserve Matic
+  const virtualToken = salesData ? salesData[2] : 0n; // Reserve Token
+  // Supply 1 Milyar. Ne kadar azaldıysa o kadar satılmıştır.
+  const maxSupply = 1000000000n * 1000000000000000000n;
+  const soldAmount = maxSupply - (virtualToken || maxSupply);
+  
+  // Progress: Hedeflenen 30000 MATIC likiditeye göre veya satılan tokena göre
+  // Basitlik için: Satılan Token / Max Supply %
+  const progress = Number((soldAmount * 100n) / maxSupply); 
   const realProgress = Math.min(progress, 100);
+
   const currentPrice = chartData.length > 0 ? chartData[chartData.length - 1].price : 0.000001;
-  const marketCap = currentPrice * 1_000_000_000;
+  const marketCap = currentPrice * 1_000_000_000; // 1 Milyar * Price
 
   const desc = metadata ? metadata[0] : "";
   const twitter = metadata ? metadata[1] : "";
   const telegram = metadata ? metadata[2] : "";
   const web = metadata ? metadata[3] : "";
 
-  // 4. GEÇMİŞ İŞLEMLERİ ÇEKME
+  // 4. HISTORY FETCHING (KALICILIK ÇÖZÜMÜ)
   const fetchHistory = async () => {
     if (!publicClient) return;
     try {
+      // Geçmişi temizlemeden önce sadece yenileri ekleyecek mantık kurabilirdik ama
+      // basitlik ve garanti çözüm için en baştan çekiyoruz.
       const [buyLogs, sellLogs] = await Promise.all([
-        publicClient.getContractEvents({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, eventName: 'Buy', fromBlock: 'earliest' }),
-        publicClient.getContractEvents({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, eventName: 'Sell', fromBlock: 'earliest' })
+        publicClient.getContractEvents({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, eventName: 'Buy', fromBlock: 0n }),
+        publicClient.getContractEvents({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, eventName: 'Sell', fromBlock: 0n })
       ]);
 
+      // Sadece bu tokena ait işlemleri al
       const relevantBuys = buyLogs.filter((l: any) => l.args.token.toLowerCase() === tokenAddress.toLowerCase());
       const relevantSells = sellLogs.filter((l: any) => l.args.token.toLowerCase() === tokenAddress.toLowerCase());
 
-      const allEvents = [...relevantBuys.map(l => ({ ...l, type: "BUY" })), ...relevantSells.map(l => ({ ...l, type: "SELL" }))]
-        .sort((a, b) => Number(a.blockNumber) - Number(b.blockNumber) || a.logIndex - b.logIndex);
+      const allEvents = [
+        ...relevantBuys.map(l => ({ ...l, type: "BUY" })), 
+        ...relevantSells.map(l => ({ ...l, type: "SELL" }))
+      ].sort((a, b) => Number(a.blockNumber) - Number(b.blockNumber) || a.logIndex - b.logIndex);
 
+      // Holder sayısını güncelle
       const buyers = new Set(relevantBuys.map((l: any) => l.args.buyer));
       setHolders(buyers.size > 0 ? buyers.size : 1);
 
@@ -95,6 +107,7 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
       let lastPrice = 0.0000001;
 
       allEvents.forEach((event: any) => {
+        // Duplicate kontrolü
         if (processedTxHashes.current.has(event.transactionHash)) return;
         processedTxHashes.current.add(event.transactionHash);
 
@@ -102,15 +115,17 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
         const tokenVal = parseFloat(formatEther(event.args.amountTokens || 0n));
         let executionPrice = tokenVal > 0 ? maticVal / tokenVal : lastPrice;
         
+        // Trades (En yeni en üstte)
         newTrades.unshift({
           user: event.args.buyer || event.args.seller,
           type: event.type,
           maticAmount: maticVal.toFixed(4),
-          tokenAmount: tokenVal, // Ham veri sakla, render ederken formatla
+          tokenAmount: tokenVal,
           price: executionPrice.toFixed(8),
           time: `Blk ${event.blockNumber}`
         });
 
+        // Grafik (Eskiden yeniye)
         newChartData.push({ 
             name: event.blockNumber.toString(), 
             price: executionPrice,
@@ -120,21 +135,28 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
         lastPrice = executionPrice;
       });
 
-      if (newChartData.length > 0) setChartData(newChartData);
-      if (newTrades.length > 0) setTradeHistory(newTrades);
+      // State güncelle (Eğer yeni veri varsa)
+      if (newChartData.length > 0 || newTrades.length > 0) {
+          setChartData(prev => [...prev, ...newChartData]); // Öncekilerin üzerine ekle (duplicate kontrolüyle)
+          // Trade history için tüm listeyi yeniden oluşturuyoruz (sıralama bozulmasın diye)
+          setTradeHistory(newTrades);
+      }
       
     } catch (e) { console.error("History Error:", e); }
   };
 
+  // Sayfa açılınca çalıştır
   useEffect(() => {
+    // İlk yüklemede processed hashleri temizle ki tekrar çekebilsin
+    processedTxHashes.current = new Set();
     fetchHistory();
-    const interval = setInterval(fetchHistory, 5000);
+    
+    // Yorumları çek
     const storedComments = localStorage.getItem(`comments_${tokenAddress}`);
     if(storedComments) setComments(JSON.parse(storedComments));
-    return () => clearInterval(interval);
   }, [tokenAddress, publicClient]);
 
-  // CANLI EVENT DİNLEME
+  // CANLI DİNLEME
   useWatchContractEvent({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, eventName: 'Buy', onLogs(logs: any) { processLiveLog(logs[0], "BUY"); } });
   useWatchContractEvent({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, eventName: 'Sell', onLogs(logs: any) { processLiveLog(logs[0], "SELL"); } });
 
@@ -152,9 +174,9 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
     setTradeHistory(prev => [{ 
         user: type === "BUY" ? log.args.buyer : log.args.seller, 
         type: type, 
-        maticAmount: maticVal.toFixed(4),
+        maticAmount: maticVal.toFixed(4), 
         tokenAmount: tokenVal,
-        price: executionPrice.toFixed(8),
+        price: executionPrice.toFixed(8), 
         time: "Just now" 
     }, ...prev]);
 
@@ -185,24 +207,6 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
     if (isConfirmed) { 
         toast.dismiss('tx'); 
         toast.success("Success!"); 
-        
-        // OPTIMISTIC UI UPDATE (Anında Ekrana Düşmesi İçin)
-        const val = parseFloat(amount);
-        const estPrice = currentPrice > 0 ? currentPrice : 0.000001;
-        const estTokens = activeTab === "buy" ? val / estPrice : val;
-        const estMatic = activeTab === "buy" ? val : val * estPrice;
-
-        const newTrade = {
-            user: address || "You",
-            type: activeTab === "buy" ? "BUY" : "SELL",
-            maticAmount: estMatic.toFixed(4),
-            tokenAmount: estTokens,
-            price: estPrice.toFixed(8),
-            time: "Just now"
-        };
-        setTradeHistory(prev => [newTrade, ...prev]);
-        setChartData(prev => [...prev, { name: "New", price: estPrice, isUp: activeTab === "buy", fill: activeTab === "buy" ? '#10b981' : '#ef4444' }]);
-
         setAmount(""); 
         refetchSales();
         refetchTokenBalance();
@@ -304,7 +308,6 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
                     {tradeHistory.length === 0 ? (
                       <div style={{ textAlign: 'center', padding: '32px 16px', color: '#64748b', fontSize: '14px' }}>No trades yet</div>
                     ) : (
-                      // YENİ TRADE LİSTESİ TASARIMI (User | Type | MATIC | Tokens | Price)
                       <div className="flex flex-col gap-1">
                         <div className="grid grid-cols-5 text-[10px] font-bold text-gray-500 uppercase px-3 pb-2">
                             <div>User</div>
