@@ -1,22 +1,24 @@
 "use client";
 
 import { useState, use, useEffect, useRef } from "react";
+// Tasarımda kullandığımız ikonlar
 import { ArrowLeft, Twitter, Globe, Send, Copy, Coins, TrendingUp, MessageSquare, User, Activity, ExternalLink } from "lucide-react";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import Link from "next/link";
+// Wagmi & Viem
 import { useWriteContract, useWaitForTransactionReceipt, useReadContract, useWatchContractEvent, useAccount, usePublicClient } from "wagmi"; 
 import { parseEther, formatEther, erc20Abi } from "viem"; 
 import { CONTRACT_ADDRESS, CONTRACT_ABI } from "../../contract"; 
+// Charts
 import { ComposedChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import toast, { Toaster } from 'react-hot-toast';
 
 const getTokenImage = (address: string) => 
   `https://api.dyneui.com/avatar/abstract?seed=${address}&size=400&background=000000&color=FDDC11&pattern=circuit&variance=0.7`;
 
-// Özel Mum (Candle) Şekli
+// Grafik için özel mum (Candle) şekli
 const CustomCandle = (props: any) => {
   const { x, y, width, height, fill } = props;
-  // Yüksekliğin en az 2px olması grafikte görünürlüğü sağlar
   return <rect x={x} y={y} width={width} height={Math.max(height, 2)} fill={fill} rx={2} />;
 };
 
@@ -25,12 +27,14 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
   const tokenAddress = id as `0x${string}`;
   const publicClient = usePublicClient(); 
 
+  // STATE
   const [activeTab, setActiveTab] = useState<"buy" | "sell">("buy");
   const [bottomTab, setBottomTab] = useState<"trades" | "chat">("trades");
   const [amount, setAmount] = useState("");
   const [isMounted, setIsMounted] = useState(false);
   const [meta, setMeta] = useState<any>({});
   
+  // DATA
   const [chartData, setChartData] = useState<any[]>([]);
   const [tradeHistory, setTradeHistory] = useState<any[]>([]);
   const [comments, setComments] = useState<any[]>([]);
@@ -39,16 +43,18 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
 
   const { isConnected, address } = useAccount();
 
-  // 1. KULLANICI BAKİYESİ
+  // 1. BAKİYE OKUMA
   const { data: userTokenBalance, refetch: refetchBalance } = useReadContract({
     address: tokenAddress, abi: erc20Abi, functionName: "balanceOf", args: [address as `0x${string}`], query: { enabled: !!address }
   });
 
   // 2. TOKEN BİLGİLERİ
   const { data: salesData, refetch: refetchSales } = useReadContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "sales", args: [tokenAddress] });
-  const { data: name, isLoading: nameLoading } = useReadContract({ address: tokenAddress, abi: [{ name: "name", type: "function", inputs: [], outputs: [{ type: "string" }], stateMutability: "view" }], functionName: "name" });
-  const { data: symbol, isLoading: symbolLoading } = useReadContract({ address: tokenAddress, abi: [{ name: "symbol", type: "function", inputs: [], outputs: [{ type: "string" }], stateMutability: "view" }], functionName: "symbol" });
-  const { data: metadata, isLoading: metaLoading } = useReadContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "tokenMetadata", args: [tokenAddress] });
+  const { data: name } = useReadContract({ address: tokenAddress, abi: [{ name: "name", type: "function", inputs: [], outputs: [{ type: "string" }], stateMutability: "view" }], functionName: "name" });
+  const { data: symbol } = useReadContract({ address: tokenAddress, abi: [{ name: "symbol", type: "function", inputs: [], outputs: [{ type: "string" }], stateMutability: "view" }], functionName: "symbol" });
+  
+  // Metadata (Sosyal Linkler)
+  const { data: metadata } = useReadContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "tokenMetadata", args: [tokenAddress] });
 
   const collateral = salesData ? formatEther(salesData[1] as bigint) : "0";
   const tokensSold = salesData ? (salesData[3] as bigint) : 0n;
@@ -56,7 +62,7 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
   const realProgress = progress > 100 ? 100 : progress;
   const currentPrice = chartData.length > 0 ? chartData[chartData.length - 1].price : 0;
 
-  // 3. GEÇMİŞ İŞLEMLERİ ÇEKME (Fix: Daha sağlam yapı)
+  // 3. GEÇMİŞ İŞLEMLERİ ÇEKME (HISTORY FETCH)
   const fetchHistory = async () => {
     if (!publicClient) return;
     try {
@@ -70,7 +76,7 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
 
         const newChartData: any[] = [];
         const newTrades: any[] = [];
-        let lastPrice = 0.0000001; // Başlangıç fiyatı
+        let lastPrice = 0.0000001;
 
         allEvents.forEach((event: any) => {
             if (processedTxHashes.current.has(event.transactionHash)) return;
@@ -78,8 +84,6 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
 
             const maticVal = parseFloat(formatEther(event.args.amountMATIC || 0n));
             const tokenVal = parseFloat(formatEther(event.args.amountTokens || 0n));
-            
-            // Fiyat = MATIC / Token
             let executionPrice = tokenVal > 0 ? maticVal / tokenVal : lastPrice;
             
             newTrades.unshift({
@@ -94,16 +98,14 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
                 name: event.blockNumber.toString(), 
                 price: executionPrice, 
                 isUp: event.type === "BUY",
-                // Mum rengi için önemli
-                fill: event.type === "BUY" ? '#22c55e' : '#ef4444'
+                fill: event.type === "BUY" ? '#22c55e' : '#ef4444' // Yeşil veya Kırmızı
             });
-            
             lastPrice = executionPrice;
         });
 
         if (newChartData.length > 0) setChartData(newChartData);
         if (newTrades.length > 0) setTradeHistory(newTrades);
-    } catch (e) { console.error("History fetch error:", e); }
+    } catch (e) { console.error(e); }
   };
 
   useEffect(() => {
@@ -112,7 +114,7 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
     if(storedComments) setComments(JSON.parse(storedComments));
   }, [tokenAddress, publicClient]);
 
-  // 4. CANLI EVENT DİNLEME (Fix: Anlık Grafik Güncelleme)
+  // CANLI EVENT DİNLEME
   useWatchContractEvent({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, eventName: 'Buy', onLogs(logs: any) { processLiveLog(logs[0], "BUY"); } });
   useWatchContractEvent({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, eventName: 'Sell', onLogs(logs: any) { processLiveLog(logs[0], "SELL"); } });
 
@@ -125,25 +127,11 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
       const tokenVal = parseFloat(formatEther(log.args.amountTokens || 0n));
       const executionPrice = tokenVal > 0 ? maticVal / tokenVal : (chartData.length > 0 ? chartData[chartData.length-1].price : 0);
       
-      setChartData(prev => [...prev, { 
-          name: "New", 
-          price: executionPrice, 
-          isUp: type === "BUY",
-          fill: type === "BUY" ? '#22c55e' : '#ef4444'
-      }]);
-
-      setTradeHistory(prev => [{ 
-          user: type === "BUY" ? log.args.buyer : log.args.seller, 
-          type: type, 
-          amount: maticVal.toFixed(4), 
-          price: executionPrice.toFixed(8), 
-          time: "Just now" 
-      }, ...prev]);
-
+      setChartData(prev => [...prev, { name: "New", price: executionPrice, isUp: type === "BUY", fill: type === "BUY" ? '#22c55e' : '#ef4444' }]);
+      setTradeHistory(prev => [{ user: type === "BUY" ? log.args.buyer : log.args.seller, type: type, amount: maticVal.toFixed(4), price: executionPrice.toFixed(8), time: "Just now" }, ...prev]);
       refetchBalance(); refetchSales();
   };
 
-  // İŞLEM FONKSİYONLARI
   const { data: hash, isPending, writeContract } = useWriteContract();
   const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({ hash });
 
@@ -174,7 +162,7 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
 
   if (!isMounted) { setIsMounted(true); return <div className="min-h-screen bg-[#1a0b2e]"/>; }
 
-  // METADATA
+  // METADATA PARSE
   const desc = metadata ? metadata[0] : "";
   const twitter = metadata ? metadata[1] : "";
   const telegram = metadata ? metadata[2] : "";
@@ -184,6 +172,7 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
     <div className="min-h-screen bg-[#1a0b2e] text-white font-sans selection:bg-[#FDDC11] selection:text-black">
       <Toaster position="top-right" toastOptions={{ style: { background: '#181a20', color: '#fff', border: '1px solid #333' } }} />
       
+      {/* HEADER (Eski Tasarım) */}
       <header className="sticky top-0 z-40 bg-[#1a0b2e]/90 backdrop-blur-md border-b border-white/5">
         <div className="max-w-[1400px] mx-auto px-4 py-3 flex items-center justify-between">
             <Link href="/" className="flex items-center gap-2 text-gray-400 hover:text-white transition-colors"><ArrowLeft size={18} /><span className="text-sm font-bold">Board</span></Link>
@@ -196,17 +185,14 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
 
       <main className="max-w-[1400px] mx-auto px-4 py-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
         
-        {/* --- SOL KOLON (Grafik & Trade) --- */}
+        {/* SOL KOLON */}
         <div className="lg:col-span-8 flex flex-col gap-6">
             <div className="flex items-start gap-4">
                 <div className="w-16 h-16 bg-[#2d1b4e] rounded-xl border border-white/10 overflow-hidden shadow-lg"><img src={getTokenImage(tokenAddress)} className="w-full h-full object-cover"/></div>
                 <div className="flex-1">
-                    <div className="flex items-center gap-3">
-                        {nameLoading ? <div className="h-8 w-40 bg-white/10 rounded animate-pulse"/> : <h1 className="text-2xl font-bold text-white">{name?.toString()}</h1>}
-                        {symbolLoading ? <div className="h-6 w-16 bg-white/10 rounded animate-pulse"/> : <span className="text-sm font-bold text-gray-400">[{symbol?.toString()}]</span>}
-                    </div>
+                    <div className="flex items-center gap-3"><h1 className="text-2xl font-bold text-white">{name?.toString() || "Loading..."}</h1><span className="text-sm font-bold text-gray-400">[{symbol?.toString() || "TKR"}]</span></div>
                     {desc && <p className="text-sm text-gray-400 mt-2 line-clamp-2">{desc}</p>}
-                    <div className="flex items-center gap-4 mt-3">
+                    <div className="flex items-center gap-4 mt-2">
                         <div className="flex gap-2">
                             {twitter && <SocialIcon href={twitter} icon={<Twitter size={14}/>} />}
                             {telegram && <SocialIcon href={telegram} icon={<Send size={14}/>} />}
@@ -217,7 +203,7 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
                 </div>
             </div>
 
-            {/* --- GRAFİK --- */}
+            {/* GRAFİK ALANI (Tasarım Korundu, Data Güncellendi) */}
             <div className="bg-[#2d1b4e]/50 border border-white/5 rounded-2xl p-5 h-[450px] relative shadow-xl backdrop-blur-sm">
                 <div className="flex justify-between items-center mb-4"><div className="flex gap-4"><StatItem label="Price" value={`${currentPrice.toFixed(6)} MATIC`} color="text-white" /><StatItem label="Market Cap" value={`$${(parseFloat(collateral) * 3200).toLocaleString()}`} color="text-[#FDDC11]" /></div></div>
                 <div className="w-full h-[360px]">
@@ -227,7 +213,7 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
                             <Tooltip contentStyle={{ backgroundColor: '#181a20', border: '1px solid #333' }} labelStyle={{display:'none'}} />
                             <Bar dataKey="price" shape={<CustomCandle />} isAnimationActive={false}>
                                 {chartData.map((entry, index) => (
-                                    <Cell key={`cell-${index}`} fill={entry.isUp ? '#22c55e' : '#ef4444'} />
+                                    <Cell key={`cell-${index}`} fill={entry.fill} />
                                 ))}
                             </Bar>
                         </ComposedChart>
@@ -236,7 +222,7 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
                 </div>
             </div>
 
-            {/* --- TRADES & COMMENTS --- */}
+            {/* TRADES / COMMENTS */}
             <div className="flex flex-col gap-4">
                 <div className="flex gap-1 bg-[#2d1b4e] p-1 rounded-lg border border-white/5 w-fit"><TabButton active={bottomTab === "trades"} onClick={() => setBottomTab("trades")} label="Recent Trades" icon={<TrendingUp size={14}/>} /><TabButton active={bottomTab === "chat"} onClick={() => setBottomTab("chat")} label="Comments" icon={<MessageSquare size={14}/>} /></div>
                 <div className="bg-[#2d1b4e]/50 border border-white/5 rounded-2xl p-4 min-h-[300px]">
@@ -263,7 +249,7 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
             </div>
         </div>
 
-        {/* --- SAĞ KOLON (ALIM SATIM) --- */}
+        {/* SAĞ KOLON (ALIM SATIM - Tasarım Korundu) */}
         <div className="lg:col-span-4 space-y-6">
             <div className="bg-[#2d1b4e] border border-white/10 rounded-2xl p-5 shadow-2xl sticky top-24">
                 <div className="grid grid-cols-2 gap-3 mb-6">
@@ -287,7 +273,7 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
                 </div>
             </div>
             <div className="bg-[#2d1b4e]/50 border border-white/5 rounded-xl p-4 space-y-3">
-                <InfoRow label="Market Cap" value={`$${(parseFloat(collateral) * 3200).toLocaleString()}`} /><InfoRow label="Collateral" value={`${parseFloat(collateral).toFixed(4)} MATIC`} /><InfoRow label="Total Supply" value="1,000,000,000" />
+                <InfoRow label="Market Cap" value={`$${(parseFloat(collateral) * 3200).toFixed(2)}`} /><InfoRow label="Collateral" value={`${parseFloat(collateral).toFixed(4)} MATIC`} /><InfoRow label="Total Supply" value="1,000,000,000" />
             </div>
         </div>
       </main>
@@ -295,6 +281,7 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
   );
 }
 
+// Alt Bileşenler (Tasarım Korundu)
 function SocialIcon({ icon, href }: { icon: any, href: string }) { return <a href={href} target="_blank" className="p-2 bg-[#2d1b4e] hover:bg-white/10 rounded-lg text-gray-400 hover:text-[#FDDC11] transition-colors cursor-pointer border border-white/5">{icon}</a>; }
 function StatItem({ label, value, color }: any) { return (<div><div className="text-[10px] text-gray-500 font-bold uppercase">{label}</div><div className={`text-lg font-bold ${color}`}>{value}</div></div>); }
 function TabButton({ active, onClick, label, icon }: any) { return (<button onClick={onClick} className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all flex items-center gap-2 ${active ? "bg-[#3e2465] text-white shadow-sm" : "text-gray-500 hover:text-white"}`}>{icon} {label}</button>); }
