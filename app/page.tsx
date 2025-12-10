@@ -2,18 +2,16 @@
 
 import { useState, useEffect } from "react";
 // Gerekli ikonlar
-import { Rocket, X, Search, Plus, TrendingUp, Activity, Users, Coins, Twitter, Send, Globe } from "lucide-react";
+import { Rocket, X, Search, TrendingUp, Activity, Users, Coins, Twitter, Send, Globe } from "lucide-react";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import Link from "next/link";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import { useWriteContract, useWaitForTransactionReceipt, useReadContract, useWatchContractEvent } from "wagmi"; 
 import { parseEther, formatEther } from "viem";
 import { CONTRACT_ADDRESS, CONTRACT_ABI } from "./contract";
 import toast, { Toaster } from 'react-hot-toast';
 
-// --- GÖRMEK İSTEMEDİĞİN ESKİ TOKEN ADRESLERİNİ BURAYA YAZ ---
-// Örnek: ["0x123...", "0x456...", "0x789..."]
-// Hepsini küçük harfle yazmaya özen göster.
+// --- GİZLENEN TOKENLAR LİSTESİ ---
 const HIDDEN_TOKENS = [
   "0xBB43432bad516A0865fEE7cDA111F43D403Bf443", 
   "0xb893Af9AB6B7c9caC81846525138C3ec31d419Ff",
@@ -23,7 +21,7 @@ const HIDDEN_TOKENS = [
 const getTokenImage = (address: string) => 
   `https://api.dyneui.com/avatar/abstract?seed=${address}&size=400&background=000000&color=FDDC11&pattern=circuit&variance=0.7`;
 
-// TOKEN CARD
+// TOKEN KARTI
 function DarkTokenCard({ tokenAddress }: { tokenAddress: `0x${string}` }) {
   const [hovering, setHovering] = useState(false);
   
@@ -137,19 +135,28 @@ export default function HomePage() {
   useEffect(() => { 
     if (allTokens) { 
       const tokens = (allTokens as string[])
-        .filter(t => !HIDDEN_TOKENS.includes(t.toLowerCase())) // GİZLEME FİLTRESİ BURADA
+        .filter(t => !HIDDEN_TOKENS.includes(t.toLowerCase())) // GİZLEME FİLTRESİ
         .reverse();
       setOrderedTokens(tokens);
     } 
   }, [allTokens]);
 
   // Event Listeners
-  useWatchContractEvent({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, eventName: 'Buy', onLogs(logs: any) { 
+  useWatchContractEvent({ 
+    address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, eventName: 'Buy', 
+    onLogs(logs: any) { 
       if(logs[0]?.args?.token) updateOrder(logs[0].args.token); 
-  }});
-  useWatchContractEvent({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, eventName: 'TokenCreated', onLogs(logs: any) { 
-      if (logs[0]?.args?.token) { setOrderedTokens(prev => [logs[0].args.token, ...prev]); toast.success("New Launch!"); } 
-  }});
+    } 
+  });
+  useWatchContractEvent({ 
+    address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, eventName: 'TokenCreated', 
+    onLogs(logs: any) { 
+      if (logs[0]?.args?.token) { 
+        setOrderedTokens(prev => [logs[0].args.token, ...prev]); 
+        toast.success("New Launch!"); 
+      } 
+    } 
+  });
 
   const updateOrder = (token: string) => {
       setOrderedTokens(prev => [token, ...prev.filter(t => t.toLowerCase() !== token.toLowerCase())]);
@@ -161,7 +168,14 @@ export default function HomePage() {
   const handleCreate = async () => {
     if (!formData.name || !formData.ticker) { toast.error("Name & Ticker required"); return; }
     try {
-      writeContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "createToken", args: [formData.name, formData.ticker], value: parseEther("0.0001") });
+      // 0.1 MATIC FEE BURADA AYARLANDI
+      writeContract({ 
+        address: CONTRACT_ADDRESS, 
+        abi: CONTRACT_ABI, 
+        functionName: "createToken", 
+        args: [formData.name, formData.ticker], 
+        value: parseEther("0.1") 
+      });
       toast.loading("Confirm in wallet...", { id: 'tx' });
     } catch (e) { toast.error("Failed"); toast.dismiss('tx'); }
   };
@@ -221,6 +235,47 @@ export default function HomePage() {
           <p style={{ color: '#94a3b8', fontSize: '16px', maxWidth: '500px', margin: '0 auto' }}>
             Fair launch, instant liquidity, and automated market making. 
           </p>
+        </div>
+
+        {/* STATS - GERÇEK VERİLER */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '40px' }}>
+           {[
+             { label: 'Pairs', val: orderedTokens.length.toString(), icon: <Coins size={20} className="text-[#FDDC11]" /> },
+             { label: 'Volume', val: '0', icon: <Activity size={20} className="text-purple-400" /> },
+             { label: 'Traders', val: '0', icon: <Users size={20} className="text-blue-400" /> },
+             { label: 'Avg ROI', val: '0%', icon: <TrendingUp size={20} className="text-green-400" /> }
+           ].map((s, i) => (
+             <div key={i} style={{ background: 'rgba(30, 41, 59, 0.3)', border: '1px solid rgba(255, 255, 255, 0.05)', borderRadius: '12px', padding: '16px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                   <span style={{ fontSize: '12px', color: '#94a3b8', fontWeight: '600' }}>{s.label}</span>
+                   {s.icon}
+                </div>
+                <div style={{ fontSize: '20px', fontWeight: '700' }}>{s.val}</div>
+             </div>
+           ))}
+        </div>
+
+        {/* FEED TABS */}
+        <div style={{ display: 'flex', gap: '8px', marginBottom: '24px', overflowX: 'auto', paddingBottom: '4px' }}>
+           {['Trending', 'New', 'Gainers', 'Volume'].map(t => (
+             <button 
+               key={t} 
+               onClick={() => setActiveTab(t.toLowerCase())}
+               style={{ 
+                 padding: '8px 16px', 
+                 borderRadius: '20px', 
+                 fontSize: '13px', 
+                 fontWeight: '600', 
+                 border: activeTab === t.toLowerCase() ? '1px solid #FDDC11' : '1px solid rgba(255, 255, 255, 0.1)',
+                 background: activeTab === t.toLowerCase() ? '#FDDC11' : 'transparent',
+                 color: activeTab === t.toLowerCase() ? '#000' : '#94a3b8',
+                 cursor: 'pointer',
+                 transition: 'all 0.2s'
+               }}
+             >
+               {t}
+             </button>
+           ))}
         </div>
 
         {/* Token Grid */}
@@ -286,6 +341,8 @@ export default function HomePage() {
             </div>
 
             <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+               
+               {/* Name & Ticker */}
                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                   <div>
                      <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#64748b', marginBottom: '6px', display: 'block', textTransform: 'uppercase' }}>Name</label>
@@ -297,11 +354,13 @@ export default function HomePage() {
                   </div>
                </div>
 
+               {/* Description */}
                <div>
                   <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#64748b', marginBottom: '6px', display: 'block', textTransform: 'uppercase' }}>Description</label>
                   <textarea placeholder="Tell us about your token..." value={formData.desc} onChange={(e) => setFormData({...formData, desc: e.target.value})} style={{ width: '100%', padding: '12px', background: 'rgba(30, 41, 59, 0.5)', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '8px', color: '#fff', fontSize: '14px', outline: 'none', height: '80px', resize: 'none' }} />
                </div>
 
+               {/* Socials */}
                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
                   <div style={{ position: 'relative' }}>
                      <Twitter size={14} style={{ position: 'absolute', left: '10px', top: '14px', color: '#64748b' }} />
@@ -317,6 +376,7 @@ export default function HomePage() {
                   </div>
                </div>
 
+               {/* Button */}
                <button 
                  onClick={handleCreate}
                  disabled={isPending || isConfirming}
@@ -342,7 +402,7 @@ export default function HomePage() {
                </button>
                
                <div style={{ textAlign: 'center', fontSize: '11px', color: '#64748b' }}>
-                  Cost: ~0.0001 MATIC • Instant Trading
+                  Cost: 0.1 MATIC • Instant Trading
                </div>
             </div>
           </motion.div>
