@@ -98,7 +98,7 @@ function DarkTokenCard({ tokenAddress }: { tokenAddress: `0x${string}` }) {
             <Coins size={14} style={{ color: '#FDDC11' }} />
             <span>{parseFloat(collateral).toFixed(2)} MATIC</span>
           </div>
-          <div style={{ fontWeight: '600' }}>Holders: {Math.floor(Math.random() * 500) + 50}</div>
+          {/* FAKE HOLDER YERİNE BOŞ BIRAKTIK */}
         </div>
       </motion.div>
     </Link>
@@ -273,7 +273,7 @@ export default function HomePage() {
                 <Rocket size={22} style={{ color: '#FDDC11' }} />
                 <span style={{ fontWeight: '800', fontSize: '18px' }}>Launch Token</span>
               </div>
-              <button onClick={() => setIsModalOpen(false)} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', padding: '8px', hover: { color: '#fff' } }}>
+              <button onClick={() => setIsModalOpen(false)} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', padding: '8px' }}>
                 <X size={22} />
               </button>
             </div>
