@@ -1,11 +1,11 @@
 "use client";
 
 import { useState, useEffect } from "react";
-// Icons
-import { Rocket, X, Search, TrendingUp, Activity, Users, Coins, Twitter, Send, Globe } from "lucide-react";
+// Gerekli ikonlar
+import { Rocket, X, Search, Plus, TrendingUp, Activity, Users, Coins, Twitter, Send, Globe } from "lucide-react";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import Link from "next/link";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { useWriteContract, useWaitForTransactionReceipt, useReadContract, useWatchContractEvent } from "wagmi"; 
 import { parseEther, formatEther } from "viem";
 import { CONTRACT_ADDRESS, CONTRACT_ABI } from "./contract";
