@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, use, useEffect, useRef } from "react";
-import { ArrowLeft, Twitter, Globe, Send, Copy, TrendingUp, MessageSquare, User, ExternalLink, Coins } from "lucide-react";
+import { ArrowLeft, Twitter, Globe, Send, Copy, TrendingUp, MessageSquare, User, ExternalLink } from "lucide-react";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import Link from "next/link";
 import { useWriteContract, useWaitForTransactionReceipt, useReadContract, useWatchContractEvent, useAccount, usePublicClient, useBalance } from "wagmi"; 
@@ -32,7 +32,7 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
   // DATA STATES
   const [chartData, setChartData] = useState<any[]>([]);
   const [tradeHistory, setTradeHistory] = useState<any[]>([]);
-  const [holders, setHolders] = useState<number>(0); // GERÇEK HOLDER SAYISI
+  const [holders, setHolders] = useState<number>(1); // Default 1 (Creator)
   const [comments, setComments] = useState<any[]>([]);
   const [commentInput, setCommentInput] = useState("");
   const processedTxHashes = useRef(new Set());
@@ -65,39 +65,42 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
   const telegram = metadata ? metadata[2] : "";
   const web = metadata ? metadata[3] : "";
 
-  // 4. GEÇMİŞ İŞLEMLERİ VE HOLDER SAYISINI HESAPLAMA
+  // 4. GÜÇLENDİRİLMİŞ GEÇMİŞ ÇEKME (JS FILTERING)
   const fetchHistory = async () => {
     if (!publicClient) return;
     try {
-      // Eventleri çek
+      // Tüm eventleri çek (token filtresi olmadan, hata payını azaltır)
       const [buyLogs, sellLogs] = await Promise.all([
         publicClient.getContractEvents({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, eventName: 'Buy', fromBlock: 'earliest' }),
         publicClient.getContractEvents({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, eventName: 'Sell', fromBlock: 'earliest' })
       ]);
 
-      // Sadece bu tokena ait olanları filtrele (Büyük/Küçük harf duyarlılığı olmadan)
+      // JS tarafında filtrele (Daha güvenilir)
       const relevantBuys = buyLogs.filter((l: any) => l.args.token.toLowerCase() === tokenAddress.toLowerCase());
       const relevantSells = sellLogs.filter((l: any) => l.args.token.toLowerCase() === tokenAddress.toLowerCase());
 
-      const allEvents = [...relevantBuys.map(l => ({ ...l, type: "BUY" })), ...relevantSells.map(l => ({ ...l, type: "SELL" }))]
-        .sort((a, b) => Number(a.blockNumber) - Number(b.blockNumber) || a.logIndex - b.logIndex);
+      const allEvents = [
+        ...relevantBuys.map(l => ({ ...l, type: "BUY" })), 
+        ...relevantSells.map(l => ({ ...l, type: "SELL" }))
+      ].sort((a, b) => Number(a.blockNumber) - Number(b.blockNumber) || a.logIndex - b.logIndex);
 
-      // Holder Hesaplama (Benzersiz alıcılar)
-      const uniqueBuyers = new Set(relevantBuys.map((l: any) => l.args.buyer));
-      setHolders(uniqueBuyers.size || 1); // En az 1 holder (creator) vardır
+      // Holder Hesapla
+      const buyers = new Set(relevantBuys.map((l: any) => l.args.buyer));
+      setHolders(buyers.size > 0 ? buyers.size : 1);
 
       const newChartData: any[] = [];
       const newTrades: any[] = [];
       let lastPrice = 0.0000001;
 
       allEvents.forEach((event: any) => {
-        if (processedTxHashes.current.has(event.transactionHash)) return;
-        processedTxHashes.current.add(event.transactionHash);
-
+        // Double check
+        const txHash = event.transactionHash;
+        
         const maticVal = parseFloat(formatEther(event.args.amountMATIC || 0n));
         const tokenVal = parseFloat(formatEther(event.args.amountTokens || 0n));
         let executionPrice = tokenVal > 0 ? maticVal / tokenVal : lastPrice;
         
+        // Trades (Ters sıra: En yeni en üstte)
         newTrades.unshift({
           user: event.args.buyer || event.args.seller,
           type: event.type,
@@ -106,6 +109,7 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
           time: `Blk ${event.blockNumber}`
         });
 
+        // Grafik (Düz sıra)
         newChartData.push({ 
             name: event.blockNumber.toString(), 
             price: executionPrice,
@@ -115,26 +119,29 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
         lastPrice = executionPrice;
       });
 
-      if (newChartData.length > 0) setChartData(newChartData);
-      if (newTrades.length > 0) setTradeHistory(newTrades);
+      setChartData(newChartData);
+      setTradeHistory(newTrades);
       
     } catch (e) { console.error("History Error:", e); }
   };
 
+  // İlk yüklemede ve periyodik olarak çek
   useEffect(() => {
     fetchHistory();
-    const interval = setInterval(fetchHistory, 5000); // Her 5 saniyede bir verileri tazele
+    const interval = setInterval(fetchHistory, 5000);
     const storedComments = localStorage.getItem(`comments_${tokenAddress}`);
     if(storedComments) setComments(JSON.parse(storedComments));
     return () => clearInterval(interval);
   }, [tokenAddress, publicClient]);
 
-  // CANLI UPDATE
+  // CANLI EVENT DİNLEME
   useWatchContractEvent({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, eventName: 'Buy', onLogs(logs: any) { processLiveLog(logs[0], "BUY"); } });
   useWatchContractEvent({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, eventName: 'Sell', onLogs(logs: any) { processLiveLog(logs[0], "SELL"); } });
 
   const processLiveLog = (log: any, type: "BUY" | "SELL") => {
     if(log.args.token.toLowerCase() !== tokenAddress.toLowerCase()) return;
+    
+    // Geçmişte zaten varsa ekleme (duplicate önlemi)
     if(processedTxHashes.current.has(log.transactionHash)) return;
     processedTxHashes.current.add(log.transactionHash);
 
@@ -152,7 +159,6 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
         time: "Just now" 
     }, ...prev]);
 
-    // Holder sayısını artır (Basit mantık: yeni biriyse ekle)
     if (type === "BUY") setHolders(prev => prev + 1);
 
     refetchSales();
@@ -184,7 +190,7 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
         refetchSales();
         refetchTokenBalance();
         refetchMatic();
-        setTimeout(fetchHistory, 2000); // İşlemden hemen sonra geçmişi tekrar çek
+        setTimeout(fetchHistory, 2000); // 2 sn sonra listeyi tazele
     } 
   }, [isConfirmed]);
 
@@ -235,9 +241,9 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
                 </div>
                 {desc && <p style={{ fontSize: '14px', color: '#94a3b8', marginBottom: '12px' }}>{desc}</p>}
                 <div style={{ display: 'flex', gap: '8px' }}>
-                  {twitter && <SocialIcon href={twitter} icon={<Twitter size={16} />} />}
-                  {telegram && <SocialIcon href={telegram} icon={<Send size={16} />} />}
-                  {web && <SocialIcon href={web} icon={<Globe size={16} />} />}
+                  {twitter && <a href={twitter} target="_blank" rel="noopener noreferrer" style={{ padding: '8px', borderRadius: '8px', backgroundColor: 'rgba(30, 41, 59, 0.5)', border: '1px solid rgba(253, 220, 17, 0.1)', color: '#94a3b8', textDecoration: 'none', display: 'flex' }}><Twitter size={16} /></a>}
+                  {telegram && <a href={telegram} target="_blank" rel="noopener noreferrer" style={{ padding: '8px', borderRadius: '8px', backgroundColor: 'rgba(30, 41, 59, 0.5)', border: '1px solid rgba(253, 220, 17, 0.1)', color: '#94a3b8', textDecoration: 'none', display: 'flex' }}><Send size={16} /></a>}
+                  {web && <a href={web} target="_blank" rel="noopener noreferrer" style={{ padding: '8px', borderRadius: '8px', backgroundColor: 'rgba(30, 41, 59, 0.5)', border: '1px solid rgba(253, 220, 17, 0.1)', color: '#94a3b8', textDecoration: 'none', display: 'flex' }}><Globe size={16} /></a>}
                   <a href={`https://polygonscan.com/address/${tokenAddress}`} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#94a3b8', textDecoration: 'none' }}><ExternalLink size={12} /> Explore</a>
                 </div>
               </div>
@@ -327,7 +333,7 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
                 <div style={{ padding: '16px', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.1)', backgroundColor: 'rgba(30, 41, 59, 0.5)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px', fontSize: '12px', color: '#94a3b8' }}>
                     <span>Amount</span>
-                    {/* BAKİYE GÖSTERİMİ DÜZELTİLDİ */}
+                    {/* BAKIYE GÖSTERİMİ */}
                     <span>Bal: {activeTab === "buy" 
                         ? `${maticBalance?.formatted ? parseFloat(maticBalance.formatted).toFixed(4) : "0.00"} MATIC` 
                         : `${userTokenBalance ? parseFloat(formatEther(userTokenBalance as bigint)).toFixed(2) : "0.00"} ${symbol}`
@@ -377,7 +383,6 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
                   <span>Total Supply</span>
                   <span style={{ color: '#fff', fontWeight: '700' }}>1,000,000,000</span>
                 </div>
-                {/* HOLDER EKLENDİ */}
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span>Holders</span>
                   <span style={{ color: '#fff', fontWeight: '700' }}>{holders}</span>
@@ -390,5 +395,3 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
     </div>
   );
 }
-
-function SocialIcon({ icon, href }: { icon: any, href: string }) { return <a href={href} target="_blank" className="p-2 bg-[#2d1b4e] hover:bg-white/10 rounded-lg text-gray-400 hover:text-[#FDDC11] transition-colors cursor-pointer border border-white/5">{icon}</a>; }
