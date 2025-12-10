@@ -1,5 +1,6 @@
 // app/contract.ts
 
+// BURAYA GÜNCEL KONTRAK ADRESİNİ YAZ:
 export const CONTRACT_ADDRESS = "0x62B8cda375cB1A54170F31B1b151be4c3222dF30";
 
 export const CONTRACT_ABI = [
@@ -46,15 +47,14 @@ export const CONTRACT_ABI = [
     "stateMutability": "nonpayable",
     "type": "function"
   },
-  // GÜNCELLENEN SALES STRUCT
   {
     "inputs": [{"internalType": "address", "name": "", "type": "address"}],
     "name": "sales",
     "outputs": [
       {"internalType": "address", "name": "creator", "type": "address"},
-      {"internalType": "uint256", "name": "virtualMaticReserves", "type": "uint256"},
-      {"internalType": "uint256", "name": "virtualTokenReserves", "type": "uint256"},
+      {"internalType": "uint256", "name": "collateral", "type": "uint256"},
       {"internalType": "bool", "name": "migrated", "type": "bool"},
+      {"internalType": "uint256", "name": "tokensSold", "type": "uint256"},
       {"internalType": "uint256", "name": "creationTime", "type": "uint256"}
     ],
     "stateMutability": "view",
@@ -81,7 +81,6 @@ export const CONTRACT_ABI = [
     "stateMutability": "view",
     "type": "function"
   },
-  // EVENTS (Burası önemli, grafik için)
   {
     "anonymous": false,
     "inputs": [
