@@ -1,10 +1,8 @@
 // app/contract.ts
 
-// SENİN KULLANDIĞIN GÜNCEL KONTRAT ADRESİ:
-export const CONTRACT_ADDRESS = "0x0D71ae8901a86Df22993b02e3C640cF93C25ddD8";
+export const CONTRACT_ADDRESS = "0x62B8cda375cB1A54170F31B1b151be4c3222dF30";
 
 export const CONTRACT_ABI = [
-  // --- FONKSİYONLAR ---
   {
     "inputs": [
       {"internalType": "string", "name": "name", "type": "string"},
@@ -48,14 +46,15 @@ export const CONTRACT_ABI = [
     "stateMutability": "nonpayable",
     "type": "function"
   },
+  // GÜNCELLENEN SALES STRUCT
   {
     "inputs": [{"internalType": "address", "name": "", "type": "address"}],
     "name": "sales",
     "outputs": [
       {"internalType": "address", "name": "creator", "type": "address"},
-      {"internalType": "uint256", "name": "collateral", "type": "uint256"},
+      {"internalType": "uint256", "name": "virtualMaticReserves", "type": "uint256"},
+      {"internalType": "uint256", "name": "virtualTokenReserves", "type": "uint256"},
       {"internalType": "bool", "name": "migrated", "type": "bool"},
-      {"internalType": "uint256", "name": "tokensSold", "type": "uint256"},
       {"internalType": "uint256", "name": "creationTime", "type": "uint256"}
     ],
     "stateMutability": "view",
@@ -82,8 +81,7 @@ export const CONTRACT_ABI = [
     "stateMutability": "view",
     "type": "function"
   },
-
-  // --- EKSİK OLAN "EVENT" TANIMLARI (BUNLAR OLMADAN GRAFİK ÇALIŞMAZ) ---
+  // EVENTS (Burası önemli, grafik için)
   {
     "anonymous": false,
     "inputs": [
