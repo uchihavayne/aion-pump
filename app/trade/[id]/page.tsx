@@ -4,15 +4,22 @@ import { useState, use, useEffect, useRef } from "react";
 import { ArrowLeft, Twitter, Globe, Send, Copy, TrendingUp, MessageSquare, User, ExternalLink } from "lucide-react";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import Link from "next/link";
-import { useWriteContract, useWaitForTransactionReceipt, useReadContract, useWatchContractEvent, useAccount, usePublicClient } from "wagmi"; 
+// Wagmi & Viem
+import { useWriteContract, useWaitForTransactionReceipt, useReadContract, useWatchContractEvent, useAccount, usePublicClient, useBalance } from "wagmi"; 
 import { parseEther, formatEther, erc20Abi } from "viem"; 
 import { CONTRACT_ADDRESS, CONTRACT_ABI } from "../../contract"; 
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
+// Charts
+import { ComposedChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import toast, { Toaster } from 'react-hot-toast';
 import { motion } from "framer-motion";
 
 const getTokenImage = (address: string) => 
   `https://api.dyneui.com/avatar/abstract?seed=${address}&size=400&background=000000&color=FDDC11&pattern=circuit&variance=0.7`;
+
+const CustomCandle = (props: any) => {
+  const { x, y, width, height, fill } = props;
+  return <rect x={x} y={y} width={width} height={Math.max(height, 2)} fill={fill} rx={2} />;
+};
 
 export default function TradePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -24,54 +31,64 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
   const [amount, setAmount] = useState("");
   const [isMounted, setIsMounted] = useState(false);
   
-  // DATA STATE
+  // Data States
   const [chartData, setChartData] = useState<any[]>([]);
   const [tradeHistory, setTradeHistory] = useState<any[]>([]);
   const [comments, setComments] = useState<any[]>([]);
   const [commentInput, setCommentInput] = useState("");
-  const processedTxHashes = useRef(new Set()); // Çift işlem kontrolü
+  const processedTxHashes = useRef(new Set());
 
   const { isConnected, address } = useAccount();
 
-  const { data: userTokenBalance, refetch: refetchBalance } = useReadContract({
+  // 1. GERÇEK MATIC BAKİYESİ (Cüzdan)
+  const { data: maticBalance, refetch: refetchMatic } = useBalance({
+    address: address,
+  });
+
+  // 2. KULLANICININ TOKEN BAKİYESİ
+  const { data: userTokenBalance, refetch: refetchTokenBalance } = useReadContract({
     address: tokenAddress, abi: erc20Abi, functionName: "balanceOf", args: [address as `0x${string}`], query: { enabled: !!address }
   });
 
+  // 3. KONTRAT VERİLERİ (Sürekli Güncel Kalmalı)
   const { data: salesData, refetch: refetchSales } = useReadContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "sales", args: [tokenAddress] });
   const { data: name } = useReadContract({ address: tokenAddress, abi: [{ name: "name", type: "function", inputs: [], outputs: [{ type: "string" }], stateMutability: "view" }], functionName: "name" });
   const { data: symbol } = useReadContract({ address: tokenAddress, abi: [{ name: "symbol", type: "function", inputs: [], outputs: [{ type: "string" }], stateMutability: "view" }], functionName: "symbol" });
   const { data: metadata } = useReadContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "tokenMetadata", args: [tokenAddress] });
 
+  // Bonding Curve Hesaplamaları
   const collateral = salesData ? formatEther(salesData[1] as bigint) : "0";
   const tokensSold = salesData ? (salesData[3] as bigint) : 0n;
   const progress = Number((tokensSold * 100n) / 1000000000000000000000000000n);
   const realProgress = Math.min(progress, 100);
-  const currentPrice = chartData.length > 0 ? chartData[chartData.length - 1].price : 0;
+  
+  // Fiyat ve Market Cap Hesaplama
+  // Son işlem fiyatı yoksa varsayılan bir değer (örneğin collateral / tokensSold yapılabilir ama basitlik için son grafik verisini alıyoruz)
+  const currentPrice = chartData.length > 0 ? chartData[chartData.length - 1].price : 0.000001;
+  const marketCap = currentPrice * 1_000_000_000; // 1 Milyar Supply * Fiyat
 
   const desc = metadata ? metadata[0] : "";
   const twitter = metadata ? metadata[1] : "";
   const telegram = metadata ? metadata[2] : "";
   const web = metadata ? metadata[3] : "";
 
-  // --- GEÇMİŞİ ÇEKME MANTIĞI (DÜZELTİLDİ) ---
+  // GEÇMİŞİ ÇEKME
   const fetchHistory = async () => {
     if (!publicClient) return;
     try {
-      // Önce geçmişi temizle ki çift yazmasın
-      processedTxHashes.current = new Set(); 
+      processedTxHashes.current = new Set(); // Resetle
 
       const [buyLogs, sellLogs] = await Promise.all([
         publicClient.getContractEvents({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, eventName: 'Buy', args: { token: tokenAddress }, fromBlock: 'earliest' }),
         publicClient.getContractEvents({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, eventName: 'Sell', args: { token: tokenAddress }, fromBlock: 'earliest' })
       ]);
 
-      // Eventleri birleştir ve ESKİDEN YENİYE doğru sırala (Grafik için)
       const allEvents = [...buyLogs.map(l => ({ ...l, type: "BUY" })), ...sellLogs.map(l => ({ ...l, type: "SELL" }))]
         .sort((a, b) => Number(a.blockNumber) - Number(b.blockNumber) || a.logIndex - b.logIndex);
 
       const newChartData: any[] = [];
       const newTrades: any[] = [];
-      let lastPrice = 0.0000001; // Başlangıç fiyatı
+      let lastPrice = 0.0000001;
 
       allEvents.forEach((event: any) => {
         if (processedTxHashes.current.has(event.transactionHash)) return;
@@ -79,11 +96,9 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
 
         const maticVal = parseFloat(formatEther(event.args.amountMATIC || 0n));
         const tokenVal = parseFloat(formatEther(event.args.amountTokens || 0n));
-        
-        // Fiyat Hesaplama
         let executionPrice = tokenVal > 0 ? maticVal / tokenVal : lastPrice;
         
-        // Trade Listesi (En yeni en üstte olacak şekilde unshift)
+        // Trades Listesi (En yeni en üstte)
         newTrades.unshift({
           user: event.args.buyer || event.args.seller,
           type: event.type,
@@ -92,8 +107,13 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
           time: `Blk ${event.blockNumber}`
         });
 
-        // Grafik Verisi (Eskiden yeniye push)
-        newChartData.push({ name: event.blockNumber.toString(), price: executionPrice });
+        // Grafik (Eskiden yeniye)
+        newChartData.push({ 
+            name: event.blockNumber.toString(), 
+            price: executionPrice,
+            isUp: event.type === "BUY",
+            fill: event.type === "BUY" ? '#10b981' : '#ef4444'
+        });
         lastPrice = executionPrice;
       });
 
@@ -109,7 +129,7 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
     if(storedComments) setComments(JSON.parse(storedComments));
   }, [tokenAddress, publicClient]);
 
-  // --- CANLI EVENT DİNLEME (DÜZELTİLDİ) ---
+  // CANLI VERİ DİNLEME
   useWatchContractEvent({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, eventName: 'Buy', onLogs(logs: any) { processLiveLog(logs[0], "BUY"); } });
   useWatchContractEvent({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, eventName: 'Sell', onLogs(logs: any) { processLiveLog(logs[0], "SELL"); } });
 
@@ -120,15 +140,13 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
 
     const maticVal = parseFloat(formatEther(log.args.amountMATIC || 0n));
     const tokenVal = parseFloat(formatEther(log.args.amountTokens || 0n));
+    // Fiyat hesaplama
+    const executionPrice = tokenVal > 0 ? maticVal / tokenVal : (chartData.length > 0 ? chartData[chartData.length-1].price : 0);
     
-    // Anlık fiyat hesapla, yoksa son fiyatı al
-    const currentChartPrice = chartData.length > 0 ? chartData[chartData.length - 1].price : 0;
-    const executionPrice = tokenVal > 0 ? maticVal / tokenVal : currentChartPrice;
+    // Grafik Güncelle
+    setChartData(prev => [...prev, { name: "New", price: executionPrice, isUp: type === "BUY", fill: type === "BUY" ? '#10b981' : '#ef4444' }]);
     
-    // Grafiğe yeni nokta ekle
-    setChartData(prev => [...prev, { name: "New", price: executionPrice }]);
-    
-    // Trade listesinin en tepesine ekle
+    // Trade Listesi Güncelle
     setTradeHistory(prev => [{ 
         user: type === "BUY" ? log.args.buyer : log.args.seller, 
         type: type, 
@@ -137,8 +155,10 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
         time: "Just now" 
     }, ...prev]);
 
-    refetchBalance(); 
+    // KRİTİK: Verileri Yenile (Progress Bar ve Bakiye için)
     refetchSales();
+    refetchTokenBalance();
+    refetchMatic();
   };
 
   const { data: hash, isPending, writeContract } = useWriteContract();
@@ -151,7 +171,6 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
       if (activeTab === "buy") {
         writeContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "buy", args: [tokenAddress], value: val });
       } else {
-        // Sell işleminde token miktarını gönderiyoruz
         writeContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "sell", args: [tokenAddress, val] });
       }
       toast.loading("Confirming...", { id: 'tx' });
@@ -159,7 +178,15 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
   };
 
   useEffect(() => { 
-    if (isConfirmed) { toast.dismiss('tx'); toast.success("Trade successful!"); setAmount(""); refetchBalance(); } 
+    if (isConfirmed) { 
+        toast.dismiss('tx'); 
+        toast.success("Success!"); 
+        setAmount(""); 
+        // İşlem bitince her şeyi yenile
+        refetchSales(); 
+        refetchTokenBalance();
+        refetchMatic();
+    } 
   }, [isConfirmed]);
 
   const handleComment = () => {
@@ -220,23 +247,23 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
 
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} style={{ borderRadius: '20px', border: '1px solid rgba(253, 220, 17, 0.15)', background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.5), rgba(15, 23, 42, 0.7))', backdropFilter: 'blur(20px)', padding: '24px', gridColumn: '1 / -1' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '24px' }}>
+                {/* MARKET CAP FIX: MATIC CİNSİNDEN GERÇEK VERİ */}
                 <div><div style={{ fontSize: '12px', color: '#94a3b8', fontWeight: '600' }}>Price</div><div style={{ fontSize: '32px', fontWeight: '900', marginTop: '4px' }}>{currentPrice.toFixed(6)} MATIC</div></div>
-                <div style={{ textAlign: 'right' }}><div style={{ fontSize: '12px', color: '#94a3b8', fontWeight: '600' }}>Market Cap</div><div style={{ fontSize: '24px', fontWeight: '700', marginTop: '4px' }}>${(parseFloat(collateral) * 3200).toLocaleString()}</div></div>
+                <div style={{ textAlign: 'right' }}><div style={{ fontSize: '12px', color: '#94a3b8', fontWeight: '600' }}>Market Cap</div><div style={{ fontSize: '24px', fontWeight: '700', marginTop: '4px' }}>{marketCap.toLocaleString(undefined, {maximumFractionDigits: 2})} MATIC</div></div>
               </div>
               {chartData.length > 0 ? (
                 <ResponsiveContainer width="100%" height={280}>
-                  <LineChart data={chartData}>
-                    <defs>
-                      <linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#FDDC11" stopOpacity={0.8}/>
-                        <stop offset="95%" stopColor="#FDDC11" stopOpacity={0.1}/>
-                      </linearGradient>
-                    </defs>
+                  <ComposedChart data={chartData}>
                     <XAxis dataKey="name" stroke="#666" style={{ fontSize: '12px' }} />
                     <YAxis domain={['auto', 'auto']} stroke="#666" style={{ fontSize: '12px' }} />
                     <Tooltip contentStyle={{ backgroundColor: '#1F2128', border: '1px solid rgba(253, 220, 17, 0.2)', borderRadius: '8px', color: '#fff' }} />
-                    <Line type="monotone" dataKey="price" stroke="#FDDC11" dot={false} isAnimationActive={false} strokeWidth={2} />
-                  </LineChart>
+                    {/* MUM ÇUBUKLARI */}
+                    <Bar dataKey="price" shape={<CustomCandle />} isAnimationActive={false}>
+                        {chartData.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={entry.fill} />
+                        ))}
+                    </Bar>
+                  </ComposedChart>
                 </ResponsiveContainer>
               ) : (
                 <div style={{ height: '280px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b' }}>Waiting for trades...</div>
@@ -303,7 +330,11 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
                 <div style={{ padding: '16px', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.1)', backgroundColor: 'rgba(30, 41, 59, 0.5)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px', fontSize: '12px', color: '#94a3b8' }}>
                     <span>Amount</span>
-                    <span>Bal: {activeTab === "buy" ? "0.00 MATIC" : `${userTokenBalance ? parseFloat(formatEther(userTokenBalance as bigint)).toFixed(2) : "0.00"} ${symbol}`}</span>
+                    {/* BAKIYE GOSTERIMI DUZELTİLDİ: GERÇEK MATIC VE TOKEN BAKİYESİ */}
+                    <span>Bal: {activeTab === "buy" 
+                        ? `${maticBalance?.formatted ? parseFloat(maticBalance.formatted).toFixed(4) : "0.00"} MATIC` 
+                        : `${userTokenBalance ? parseFloat(formatEther(userTokenBalance as bigint)).toFixed(2) : "0.00"} ${symbol || "TKN"}`
+                    }</span>
                   </div>
                   <input type="number" placeholder="0.0" value={amount} onChange={(e) => setAmount(e.target.value)} style={{ width: '100%', fontSize: '36px', fontWeight: '900', backgroundColor: 'transparent', color: '#fff', outline: 'none', border: 'none', fontFamily: 'inherit' }} />
                   <div style={{ textAlign: 'right', marginTop: '12px', fontSize: '12px', color: '#94a3b8' }}>{activeTab === "buy" ? "MATIC" : symbol || "TKN"}</div>
@@ -339,7 +370,8 @@ export default function TradePage({ params }: { params: Promise<{ id: string }> 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '16px', fontSize: '12px', color: '#94a3b8', borderTop: '1px solid rgba(255, 255, 255, 0.05)', paddingTop: '16px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span>Market Cap</span>
-                  <span style={{ color: '#fff', fontWeight: '700' }}>${(parseFloat(collateral) * 3200).toLocaleString()}</span>
+                  {/* MARKET CAP FIX: MATIC CİNSİNDEN */}
+                  <span style={{ color: '#fff', fontWeight: '700' }}>{marketCap.toLocaleString(undefined, {maximumFractionDigits: 2})} MATIC</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span>Collateral</span>
