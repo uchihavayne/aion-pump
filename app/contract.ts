@@ -1,7 +1,7 @@
 // app/contract.ts
 
-// BURAYA GÜNCEL KONTRAK ADRESİNİ YAZ:
-export const CONTRACT_ADDRESS = "0xcD2519B1f96E9bb06525Af785d6ED24179B14603";
+// BURAYA REMIX'TEN ALDIĞIN EN SON KONTRAT ADRESİNİ YAPIŞTIR:
+export const CONTRACT_ADDRESS = "0xEcfDcb123aEAF48a534e336f00a1B7642AD63132";
 
 export const CONTRACT_ABI = [
   {
@@ -11,7 +11,8 @@ export const CONTRACT_ABI = [
       {"internalType": "string", "name": "description", "type": "string"},
       {"internalType": "string", "name": "twitter", "type": "string"},
       {"internalType": "string", "name": "telegram", "type": "string"},
-      {"internalType": "string", "name": "website", "type": "string"}
+      {"internalType": "string", "name": "website", "type": "string"},
+      {"internalType": "string", "name": "image", "type": "string"}
     ],
     "name": "createToken",
     "outputs": [],
@@ -25,7 +26,8 @@ export const CONTRACT_ABI = [
       {"internalType": "string", "name": "description", "type": "string"},
       {"internalType": "string", "name": "twitter", "type": "string"},
       {"internalType": "string", "name": "telegram", "type": "string"},
-      {"internalType": "string", "name": "website", "type": "string"}
+      {"internalType": "string", "name": "website", "type": "string"},
+      {"internalType": "string", "name": "image", "type": "string"}
     ],
     "stateMutability": "view",
     "type": "function"
@@ -52,9 +54,9 @@ export const CONTRACT_ABI = [
     "name": "sales",
     "outputs": [
       {"internalType": "address", "name": "creator", "type": "address"},
-      {"internalType": "uint256", "name": "collateral", "type": "uint256"},
+      {"internalType": "uint256", "name": "virtualMaticReserves", "type": "uint256"},
+      {"internalType": "uint256", "name": "virtualTokenReserves", "type": "uint256"},
       {"internalType": "bool", "name": "migrated", "type": "bool"},
-      {"internalType": "uint256", "name": "tokensSold", "type": "uint256"},
       {"internalType": "uint256", "name": "creationTime", "type": "uint256"}
     ],
     "stateMutability": "view",
@@ -81,6 +83,7 @@ export const CONTRACT_ABI = [
     "stateMutability": "view",
     "type": "function"
   },
+  // EVENTS
   {
     "anonymous": false,
     "inputs": [
