@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { Rocket, X, Coins, Twitter, Send, Globe, TrendingUp, Users, Activity, Crown, Flame } from "lucide-react"; // Crown ve Flame eklendi
+// 1. IMPORT FIX: useRef here is critical!
+import { useState, useEffect, useRef } from "react";
+import { Rocket, X, Coins, Twitter, Send, Globe, TrendingUp, Users, Activity, Crown, Flame, Upload } from "lucide-react";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import Link from "next/link";
 import { motion } from "framer-motion";
@@ -15,7 +16,7 @@ const HIDDEN_TOKENS: string[] = [].map((t: string) => t.toLowerCase());
 const getTokenImage = (address: string, customImage?: string) => 
   customImage || `https://api.dyneui.com/avatar/abstract?seed=${address}&size=400&background=000000&color=FDDC11&pattern=circuit&variance=0.7`;
 
-// --- KING OF THE HILL BİLEŞENİ ---
+// --- KING OF THE HILL COMPONENT ---
 function KingOfTheHill({ tokenAddress }: { tokenAddress: `0x${string}` }) {
   const { data: salesData } = useReadContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "sales", args: [tokenAddress] });
   const { data: name } = useReadContract({ address: tokenAddress, abi: [{ name: "name", type: "function", inputs: [], outputs: [{ type: "string" }], stateMutability: "view" }], functionName: "name" });
@@ -28,7 +29,7 @@ function KingOfTheHill({ tokenAddress }: { tokenAddress: `0x${string}` }) {
   const image = metadata ? metadata[4] : "";
   const tokenImage = getTokenImage(tokenAddress, image);
 
-  if (!name) return null; // Yüklenmediyse gösterme
+  if (!name) return null;
 
   return (
     <Link href={`/trade/${tokenAddress}`}>
@@ -68,6 +69,7 @@ function KingOfTheHill({ tokenAddress }: { tokenAddress: `0x${string}` }) {
   );
 }
 
+// --- TOKEN CARD COMPONENT ---
 function DarkTokenCard({ tokenAddress }: { tokenAddress: `0x${string}` }) {
   const [hovering, setHovering] = useState(false);
   const [holders, setHolders] = useState(1);
@@ -127,6 +129,7 @@ function DarkTokenCard({ tokenAddress }: { tokenAddress: `0x${string}` }) {
   );
 }
 
+// --- HOME PAGE MAIN ---
 export default function HomePage() {
   const [isMounted, setIsMounted] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -151,7 +154,7 @@ export default function HomePage() {
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) setPreviewUrl(URL.createObjectURL(file));
+    if (file) { setPreviewUrl(URL.createObjectURL(file)); }
   };
 
   const { data: hash, isPending, writeContract } = useWriteContract();
@@ -200,7 +203,7 @@ export default function HomePage() {
       </header>
 
       <main style={{ maxWidth: '1280px', margin: '0 auto', padding: '60px 20px', position: 'relative', zIndex: 10 }}>
-        {/* KING OF THE HILL SECTION - SADECE EN YENİ TOKEN VARSA GÖSTER */}
+        {/* KING OF THE HILL SECTION */}
         {orderedTokens.length > 0 && (
           <div className="mb-12">
              <div className="flex items-center gap-2 mb-4"><Crown className="text-[#FDDC11]" size={24} /><h2 className="text-2xl font-black text-white">KING OF THE HILL</h2></div>
@@ -224,7 +227,6 @@ export default function HomePage() {
         </div>
       </main>
 
-      {/* Modal - Aynı Kalıyor (Yukarıdaki Kodun Devamı) */}
       {isModalOpen && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
           <div onClick={() => setIsModalOpen(false)} style={{ position: 'absolute', inset: 0, backgroundColor: 'rgba(0, 0, 0, 0.8)', backdropFilter: 'blur(12px)' }} />
@@ -233,12 +235,15 @@ export default function HomePage() {
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}><Rocket size={22} style={{ color: '#FDDC11' }} /><span style={{ fontWeight: '800', fontSize: '18px' }}>Launch Token</span></div>
               <button onClick={() => setIsModalOpen(false)} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', padding: '8px' }}><X size={22} /></button>
             </div>
+            
             <div style={{ padding: '28px', display: 'flex', flexDirection: 'column', gap: '18px' }}>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
                 <div><label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', marginBottom: '8px', display: 'block', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Name</label><input type="text" placeholder="Bitcoin" value={formData.name} onChange={(e) => setFormData({...formData, name: e.target.value})} style={{ width: '100%', padding: '14px', background: 'rgba(30, 41, 59, 0.6)', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '10px', color: '#fff', fontSize: '14px', outline: 'none', transition: 'all 0.2s' }} /></div>
                 <div><label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', marginBottom: '8px', display: 'block', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Ticker</label><input type="text" placeholder="BTC" maxLength={10} value={formData.ticker} onChange={(e) => setFormData({...formData, ticker: e.target.value.toUpperCase()})} style={{ width: '100%', padding: '14px', background: 'rgba(30, 41, 59, 0.6)', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '10px', color: '#fff', fontSize: '14px', outline: 'none', transition: 'all 0.2s' }} /></div>
               </div>
+              
               <div><label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', marginBottom: '8px', display: 'block', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Description</label><textarea placeholder="Tell us about your token..." value={formData.desc} onChange={(e) => setFormData({...formData, desc: e.target.value})} style={{ width: '100%', padding: '14px', background: 'rgba(30, 41, 59, 0.6)', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '10px', color: '#fff', fontSize: '14px', outline: 'none', height: '90px', resize: 'none', transition: 'all 0.2s' }} /></div>
+              
               <div>
                 <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', marginBottom: '8px', display: 'block', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Image / GIF</label>
                 <div onClick={() => fileInputRef.current?.click()} style={{ width: '100%', padding: '20px', background: 'rgba(30, 41, 59, 0.6)', border: '1px dashed rgba(253, 220, 17, 0.3)', borderRadius: '10px', cursor: 'pointer', textAlign: 'center', transition: 'all 0.2s', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
@@ -247,6 +252,7 @@ export default function HomePage() {
                 </div>
                 <input type="text" placeholder="Or paste Image URL..." value={formData.image} onChange={(e) => { setFormData({...formData, image: e.target.value}); setPreviewUrl(e.target.value); }} style={{ width: '100%', marginTop: '8px', padding: '10px', background: 'rgba(255, 255, 255, 0.05)', border: 'none', borderRadius: '8px', color: '#fff', fontSize: '12px', outline: 'none' }} />
               </div>
+
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
                 <input type="text" placeholder="Twitter" value={formData.twitter} onChange={(e) => setFormData({...formData, twitter: e.target.value})} style={{ width: '100%', padding: '12px', background: 'rgba(30, 41, 59, 0.6)', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '10px', color: '#fff', fontSize: '12px', outline: 'none', transition: 'all 0.2s' }} />
                 <input type="text" placeholder="Telegram" value={formData.telegram} onChange={(e) => setFormData({...formData, telegram: e.target.value})} style={{ width: '100%', padding: '12px', background: 'rgba(30, 41, 59, 0.6)', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '10px', color: '#fff', fontSize: '12px', outline: 'none', transition: 'all 0.2s' }} />
