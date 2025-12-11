@@ -1,19 +1,25 @@
 "use client";
 
 import { useState, useEffect, useRef, use } from "react";
-import { ArrowLeft, Twitter, Globe, Send, Copy, TrendingUp, MessageSquare, User, ExternalLink, Coins, Users, PieChart as PieIcon } from "lucide-react";
+import { ArrowLeft, Twitter, Globe, Send, Copy, TrendingUp, MessageSquare, User, ExternalLink, Coins, Users, PieChart as PieIcon, Settings, Volume2 } from "lucide-react";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import Link from "next/link";
 import { useWriteContract, useWaitForTransactionReceipt, useReadContract, useWatchContractEvent, useAccount, usePublicClient, useBalance } from "wagmi"; 
 import { parseEther, formatEther, erc20Abi } from "viem"; 
 import { CONTRACT_ADDRESS, CONTRACT_ABI } from "../../contract"; 
-// PieChart eklendi
 import { ComposedChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, PieChart, Pie } from 'recharts';
 import toast, { Toaster } from 'react-hot-toast';
 import { motion } from "framer-motion";
 
 const getTokenImage = (address: string, customImage?: string) => 
   customImage || `https://api.dyneui.com/avatar/abstract?seed=${address}&size=400&background=000000&color=FDDC11&pattern=circuit&variance=0.7`;
+
+// Ses Efekti (Basit tarayıcı beep sesi yerine placeholder)
+// Gerçek ses dosyası olmadığı için konsola log atar veya varsa oynatır.
+const playSound = (type: 'buy' | 'sell') => {
+  // Gerçek projede: new Audio(`/sounds/${type}.mp3`).play();
+  console.log(`Playing ${type} sound...`);
+};
 
 const formatTokenAmount = (num: number) => {
   if (num >= 1000000) return (num / 1000000).toFixed(2) + "M";
@@ -38,12 +44,14 @@ export default function TradePage(props: PageProps) {
   const [bottomTab, setBottomTab] = useState<"trades" | "chat" | "holders">("trades");
   const [amount, setAmount] = useState("");
   const [isMounted, setIsMounted] = useState(false);
+  const [slippage, setSlippage] = useState(1); // Slippage %1 default
+  const [showSettings, setShowSettings] = useState(false);
   
   // Data States
   const [chartData, setChartData] = useState<any[]>([]);
   const [tradeHistory, setTradeHistory] = useState<any[]>([]);
-  const [holderList, setHolderList] = useState<any[]>([]); 
-  const [pieData, setPieData] = useState<any[]>([]); // Pasta Grafiği Verisi
+  const [holderList, setHolderList] = useState<any[]>([]);
+  const [pieData, setPieData] = useState<any[]>([]);
   const [comments, setComments] = useState<any[]>([]);
   const [commentInput, setCommentInput] = useState("");
   const processedTxHashes = useRef(new Set());
@@ -62,7 +70,7 @@ export default function TradePage(props: PageProps) {
 
   const collateral = salesData ? formatEther(salesData[1] as bigint) : "0";
   const tokensSold = salesData ? (salesData[3] as bigint) : 0n;
-  const creatorAddress = salesData ? salesData[0] : "";
+  const creatorAddress = salesData ? salesData[0] : ""; // DEV ADRESİ
   
   const progress = Number((tokensSold * 100n) / 1000000000000000000000000000n);
   const realProgress = Math.min(progress, 100);
@@ -89,33 +97,19 @@ export default function TradePage(props: PageProps) {
       const allEvents = [...relevantBuys.map(l => ({ ...l, type: "BUY" })), ...relevantSells.map(l => ({ ...l, type: "SELL" }))]
         .sort((a, b) => Number(a.blockNumber) - Number(b.blockNumber) || a.logIndex - b.logIndex);
 
-      // --- HOLDER & PIE CHART HESAPLAMA ---
+      // --- HOLDER & PIE CHART ---
       const balances: Record<string, bigint> = {};
       relevantBuys.forEach((l:any) => { balances[l.args.buyer] = (balances[l.args.buyer] || 0n) + (l.args.amountTokens || 0n); });
       relevantSells.forEach((l:any) => { balances[l.args.seller] = (balances[l.args.seller] || 0n) - (l.args.amountTokens || 0n); });
 
-      const sortedHolders = Object.entries(balances)
-        .filter(([_, bal]) => bal > 0n)
-        .sort(([, a], [, b]) => (b > a ? 1 : -1))
-        .map(([addr, bal]) => ({
-            address: addr,
-            balance: bal,
-            percentage: (Number(bal) * 100) / 1_000_000_000 / 10**18 
-        }));
-      
+      const sortedHolders = Object.entries(balances).filter(([_, bal]) => bal > 0n).sort(([, a], [, b]) => (b > a ? 1 : -1)).map(([addr, bal]) => ({ address: addr, balance: bal, percentage: (Number(bal) * 100) / 1_000_000_000 / 10**18 }));
       setHolderList(sortedHolders);
 
-      // Pie Chart Verisi (İlk 5 Holder + Diğerleri)
       const topHolders = sortedHolders.slice(0, 5);
       const otherBalance = sortedHolders.slice(5).reduce((acc, curr) => acc + curr.percentage, 0);
-      const chartDataPie = topHolders.map((h, i) => ({
-          name: `${h.address.slice(0,4)}...`,
-          value: h.percentage,
-          fill: i === 0 ? '#FDDC11' : i === 1 ? '#fbbf24' : i === 2 ? '#d97706' : '#b45309'
-      }));
+      const chartDataPie = topHolders.map((h, i) => ({ name: `${h.address.slice(0,4)}...`, value: h.percentage, fill: i === 0 ? '#FDDC11' : i === 1 ? '#fbbf24' : i === 2 ? '#d97706' : '#b45309' }));
       if (otherBalance > 0) chartDataPie.push({ name: 'Others', value: otherBalance, fill: '#4b5563' });
       setPieData(chartDataPie);
-      // --------------------------------------
 
       const newChartData: any[] = [];
       const newTrades: any[] = [];
@@ -168,16 +162,11 @@ export default function TradePage(props: PageProps) {
     const tokenVal = parseFloat(formatEther(log.args.amountTokens || 0n));
     const executionPrice = tokenVal > 0 ? maticVal / tokenVal : (chartData.length > 0 ? chartData[chartData.length-1].price : 0);
     
+    // SES EFEKTİ
+    playSound(type === "BUY" ? "buy" : "sell");
+
     setChartData(prev => [...prev, { name: "New", price: executionPrice, isUp: type === "BUY", fill: type === "BUY" ? '#10b981' : '#ef4444' }]);
-    
-    setTradeHistory(prev => [{ 
-        user: type === "BUY" ? log.args.buyer : log.args.seller, 
-        type: type, 
-        maticAmount: maticVal.toFixed(4), 
-        tokenAmount: tokenVal, 
-        price: executionPrice.toFixed(8), 
-        time: "Just now" 
-    }, ...prev]);
+    setTradeHistory(prev => [{ user: type === "BUY" ? log.args.buyer : log.args.seller, type: type, maticAmount: maticVal.toFixed(4), tokenAmount: tokenVal, price: executionPrice.toFixed(8), time: "Just now" }, ...prev]);
 
     refetchSales(); refetchTokenBalance(); refetchMatic();
   };
@@ -198,6 +187,7 @@ export default function TradePage(props: PageProps) {
   useEffect(() => { 
     if (isConfirmed) { 
         toast.dismiss('tx'); toast.success("Success!"); setAmount(""); 
+        playSound(activeTab === "buy" ? "buy" : "sell");
         const val = parseFloat(amount);
         const estPrice = currentPrice > 0 ? currentPrice : 0.000001;
         const estTokens = activeTab === "buy" ? val / estPrice : val;
@@ -281,13 +271,21 @@ export default function TradePage(props: PageProps) {
                       <div className="flex flex-col gap-1">
                         <div className="grid grid-cols-5 text-[10px] font-bold text-gray-500 uppercase px-3 pb-2"><div>User</div><div>Type</div><div>MATIC</div><div>Tokens</div><div className="text-right">Price</div></div>
                         {tradeHistory.map((trade, i) => (
-                            <div key={i} className="grid grid-cols-5 text-xs py-3 px-3 hover:bg-white/5 rounded-lg transition-colors border-b border-white/5 last:border-0"><div className="font-mono text-gray-400">{trade.user.slice(0,6)}...</div><div style={{ color: trade.type === "BUY" ? '#10b981' : '#ef4444', fontWeight: '700' }}>{trade.type}</div><div className="text-white">{trade.maticAmount}</div><div className="text-white">{formatTokenAmount(trade.tokenAmount)}</div><div className="text-right text-gray-500">{trade.price}</div></div>
+                            // DEV ALERT: Eğer cüzdan adresi Creator ise Mor Yanıp Sönen Arka Plan
+                            <div key={i} className={`grid grid-cols-5 text-xs py-3 px-3 rounded-lg transition-colors border-b border-white/5 last:border-0 ${trade.user.toLowerCase() === creatorAddress?.toLowerCase() ? 'bg-purple-900/30 border border-purple-500/50 animate-pulse' : 'hover:bg-white/5'}`}>
+                                <div className="font-mono text-gray-400 flex items-center gap-1">{trade.user.slice(0,6)}... {trade.user.toLowerCase() === creatorAddress?.toLowerCase() && <span className="text-[8px] bg-purple-500 text-white px-1 rounded">DEV</span>}</div>
+                                <div style={{ color: trade.type === "BUY" ? '#10b981' : '#ef4444', fontWeight: '700' }}>{trade.type}</div>
+                                <div className="text-white">{trade.maticAmount}</div>
+                                <div className="text-white">{formatTokenAmount(trade.tokenAmount)}</div>
+                                <div className="text-right text-gray-500">{trade.price}</div>
+                            </div>
                         ))}
                       </div>
                     )}
                   </div>
                 ) : bottomTab === "holders" ? (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {/* PASTA GRAFİĞİ */}
                       <div style={{ height: '200px', width: '100%', marginBottom: '16px' }}>
                          <ResponsiveContainer width="100%" height="100%">
                             <PieChart>
@@ -343,6 +341,22 @@ export default function TradePage(props: PageProps) {
                     <button key={v} onClick={() => setAmount(v)} style={{ padding: '10px', borderRadius: '10px', border: '1px solid rgba(253, 220, 17, 0.1)', backgroundColor: 'rgba(30, 41, 59, 0.5)', color: '#fff', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}>{v}</button>
                   ))}
                 </div>
+
+                {/* SLIPPAGE SETTINGS UI */}
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', alignItems: 'center' }}>
+                    <Settings size={14} className="text-gray-500" />
+                    <span style={{ fontSize: '12px', color: '#64748b' }}>Slippage:</span>
+                    <select 
+                      value={slippage} 
+                      onChange={(e) => setSlippage(Number(e.target.value))} 
+                      style={{ background: 'transparent', color: '#FDDC11', border: 'none', fontSize: '12px', fontWeight: 'bold', outline: 'none', cursor: 'pointer' }}
+                    >
+                      <option value={1}>1%</option>
+                      <option value={5}>5%</option>
+                      <option value={10}>10%</option>
+                    </select>
+                </div>
+
                 <button onClick={handleTx} disabled={isPending || isConfirming || !isConnected} style={{ width: '100%', padding: '16px', borderRadius: '12px', fontWeight: '700', fontSize: '14px', border: 'none', backgroundColor: activeTab === "buy" ? '#10b981' : '#ef4444', color: '#fff', cursor: 'pointer', opacity: (isPending || isConfirming || !isConnected) ? 0.5 : 1 }}>
                   {isPending ? "Processing..." : isConfirming ? "Confirming..." : activeTab === "buy" ? "BUY" : "SELL"}
                 </button>
