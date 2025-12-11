@@ -1,8 +1,8 @@
 "use client";
 
-// 1. IMPORT FIX: useRef here is critical!
 import { useState, useEffect, useRef } from "react";
-import { Rocket, X, Coins, Twitter, Send, Globe, TrendingUp, Users, Activity, Crown, Flame, Upload } from "lucide-react";
+// Search ve Star eklendi
+import { Rocket, X, Coins, Twitter, Send, Globe, TrendingUp, Users, Activity, Crown, Flame, Upload, Search, Star, User as UserIcon } from "lucide-react";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import Link from "next/link";
 import { motion } from "framer-motion";
@@ -16,63 +16,11 @@ const HIDDEN_TOKENS: string[] = [].map((t: string) => t.toLowerCase());
 const getTokenImage = (address: string, customImage?: string) => 
   customImage || `https://api.dyneui.com/avatar/abstract?seed=${address}&size=400&background=000000&color=FDDC11&pattern=circuit&variance=0.7`;
 
-// --- KING OF THE HILL COMPONENT ---
-function KingOfTheHill({ tokenAddress }: { tokenAddress: `0x${string}` }) {
-  const { data: salesData } = useReadContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "sales", args: [tokenAddress] });
-  const { data: name } = useReadContract({ address: tokenAddress, abi: [{ name: "name", type: "function", inputs: [], outputs: [{ type: "string" }], stateMutability: "view" }], functionName: "name" });
-  const { data: symbol } = useReadContract({ address: tokenAddress, abi: [{ name: "symbol", type: "function", inputs: [], outputs: [{ type: "string" }], stateMutability: "view" }], functionName: "symbol" });
-  const { data: metadata } = useReadContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "tokenMetadata", args: [tokenAddress] });
-
-  const tokensSold = salesData ? (salesData[3] as bigint) : 0n;
-  const progress = Number((tokensSold * 100n) / 1000000000000000000000000000n);
-  const realProgress = Math.min(progress, 100);
-  const image = metadata ? metadata[4] : "";
-  const tokenImage = getTokenImage(tokenAddress, image);
-
-  if (!name) return null;
-
-  return (
-    <Link href={`/trade/${tokenAddress}`}>
-      <motion.div 
-        initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} 
-        whileHover={{ scale: 1.02 }}
-        className="relative overflow-hidden rounded-3xl p-1 mb-12 cursor-pointer group"
-        style={{ background: 'linear-gradient(45deg, #FDDC11, #ff0000, #9333ea, #FDDC11)', backgroundSize: '400% 400%', animation: 'gradientBorder 3s ease infinite' }}
-      >
-        <style>{`@keyframes gradientBorder { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }`}</style>
-        <div className="bg-[#0a0e27] rounded-[22px] p-6 relative overflow-hidden">
-          <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity"><Crown size={120} /></div>
-          
-          <div className="flex flex-col md:flex-row gap-8 items-center">
-             <div className="relative">
-                <img src={tokenImage} className="w-32 h-32 md:w-40 md:h-40 rounded-2xl border-4 border-[#FDDC11] shadow-[0_0_30px_rgba(253,220,17,0.4)] object-cover" />
-                <div className="absolute -top-4 -left-4 bg-[#FDDC11] text-black font-black px-4 py-1 rounded-full flex items-center gap-2 shadow-lg transform -rotate-6 border-2 border-white">
-                   <Crown size={16} fill="black" /> KING OF THE HILL
-                </div>
-             </div>
-             
-             <div className="flex-1 text-center md:text-left z-10">
-                <h2 className="text-4xl font-black text-white mb-2 leading-tight">{name?.toString()} <span className="text-[#FDDC11] text-2xl">[{symbol?.toString()}]</span></h2>
-                <div className="flex items-center justify-center md:justify-start gap-4 mb-4">
-                   <span className="px-3 py-1 bg-white/10 rounded-lg text-sm font-bold text-green-400 flex items-center gap-2"><Flame size={14} className="fill-green-400"/> Bonding Curve: {realProgress.toFixed(2)}%</span>
-                   <span className="px-3 py-1 bg-white/10 rounded-lg text-sm font-bold text-blue-400 flex items-center gap-2"><Activity size={14}/> Top Volume</span>
-                </div>
-                <div className="h-4 bg-white/10 rounded-full overflow-hidden border border-white/5 w-full max-w-md">
-                   <motion.div initial={{ width: 0 }} animate={{ width: `${realProgress}%` }} transition={{ duration: 1.5 }} className="h-full bg-gradient-to-r from-[#FDDC11] to-red-500 shadow-[0_0_20px_#FDDC11]" />
-                </div>
-                <p className="text-gray-400 text-sm mt-2">Closest to graduation! Buy now before it hits DEX.</p>
-             </div>
-          </div>
-        </div>
-      </motion.div>
-    </Link>
-  );
-}
-
-// --- TOKEN CARD COMPONENT ---
+// --- TOKEN KARTI (FAVORİ BUTONU İLE) ---
 function DarkTokenCard({ tokenAddress }: { tokenAddress: `0x${string}` }) {
   const [hovering, setHovering] = useState(false);
   const [holders, setHolders] = useState(1);
+  const [isFav, setIsFav] = useState(false); // Favori state
   const publicClient = usePublicClient();
 
   const { data: salesData } = useReadContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "sales", args: [tokenAddress] });
@@ -86,6 +34,28 @@ function DarkTokenCard({ tokenAddress }: { tokenAddress: `0x${string}` }) {
   const realProgress = Math.min(progress, 100);
   const image = metadata ? metadata[4] : "";
   const tokenImage = getTokenImage(tokenAddress, image);
+
+  // Favori Kontrolü
+  useEffect(() => {
+    const favs = JSON.parse(localStorage.getItem("favorites") || "[]");
+    setIsFav(favs.includes(tokenAddress));
+  }, [tokenAddress]);
+
+  const toggleFav = (e: any) => {
+    e.preventDefault(); // Linke gitmeyi engelle
+    e.stopPropagation();
+    const favs = JSON.parse(localStorage.getItem("favorites") || "[]");
+    let newFavs;
+    if (favs.includes(tokenAddress)) {
+        newFavs = favs.filter((t: string) => t !== tokenAddress);
+        toast.success("Removed from watchlist");
+    } else {
+        newFavs = [...favs, tokenAddress];
+        toast.success("Added to watchlist");
+    }
+    localStorage.setItem("favorites", JSON.stringify(newFavs));
+    setIsFav(!isFav);
+  };
 
   useEffect(() => {
     const getHolders = async () => {
@@ -106,6 +76,11 @@ function DarkTokenCard({ tokenAddress }: { tokenAddress: `0x${string}` }) {
         initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
         style={{ position: 'relative', cursor: 'pointer', height: '100%', borderRadius: '20px', border: hovering ? '1px solid rgba(253, 220, 17, 0.5)' : '1px solid rgba(253, 220, 17, 0.15)', background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.5), rgba(15, 23, 42, 0.7))', backdropFilter: 'blur(20px)', padding: '24px', transition: 'all 0.3s ease', transform: hovering ? 'translateY(-8px)' : 'translateY(0)', boxShadow: hovering ? '0 20px 50px -10px rgba(253, 220, 17, 0.2)' : 'none' }}
       >
+        {/* FAV BUTTON */}
+        <div onClick={toggleFav} className="absolute top-4 right-4 z-10 p-2 rounded-full bg-black/40 hover:bg-black/60 transition-colors border border-white/10">
+            <Star size={16} className={isFav ? "text-[#FDDC11] fill-[#FDDC11]" : "text-gray-400"} />
+        </div>
+
         <div style={{ display: 'flex', gap: '16px', marginBottom: '20px', alignItems: 'flex-start' }}>
           <img src={tokenImage} alt="token" style={{ width: '60px', height: '60px', borderRadius: '14px', border: '1px solid rgba(253, 220, 17, 0.2)', objectFit: 'cover', flexShrink: 0 }} />
           <div style={{ flex: 1 }}>
@@ -129,11 +104,55 @@ function DarkTokenCard({ tokenAddress }: { tokenAddress: `0x${string}` }) {
   );
 }
 
-// --- HOME PAGE MAIN ---
+// --- KING OF THE HILL (AYNI) ---
+function KingOfTheHill({ tokenAddress }: { tokenAddress: `0x${string}` }) {
+  // ... (Bu kısım önceki koddakiyle aynı kalabilir, yer kaplamaması için kısaltıyorum)
+  const { data: name } = useReadContract({ address: tokenAddress, abi: [{ name: "name", type: "function", inputs: [], outputs: [{ type: "string" }], stateMutability: "view" }], functionName: "name" });
+  const { data: symbol } = useReadContract({ address: tokenAddress, abi: [{ name: "symbol", type: "function", inputs: [], outputs: [{ type: "string" }], stateMutability: "view" }], functionName: "symbol" });
+  const { data: salesData } = useReadContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "sales", args: [tokenAddress] });
+  const { data: metadata } = useReadContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "tokenMetadata", args: [tokenAddress] });
+  
+  const tokensSold = salesData ? (salesData[3] as bigint) : 0n;
+  const progress = Number((tokensSold * 100n) / 1000000000000000000000000000n);
+  const realProgress = Math.min(progress, 100);
+  const image = metadata ? metadata[4] : "";
+  const tokenImage = getTokenImage(tokenAddress, image);
+
+  if (!name) return null;
+
+  return (
+    <Link href={`/trade/${tokenAddress}`}>
+      <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} whileHover={{ scale: 1.02 }} className="relative overflow-hidden rounded-3xl p-1 mb-12 cursor-pointer group" style={{ background: 'linear-gradient(45deg, #FDDC11, #ff0000, #9333ea, #FDDC11)', backgroundSize: '400% 400%', animation: 'gradientBorder 3s ease infinite' }}>
+        <style>{`@keyframes gradientBorder { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }`}</style>
+        <div className="bg-[#0a0e27] rounded-[22px] p-6 relative overflow-hidden">
+          <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity"><Crown size={120} /></div>
+          <div className="flex flex-col md:flex-row gap-8 items-center">
+             <div className="relative">
+                <img src={tokenImage} className="w-32 h-32 md:w-40 md:h-40 rounded-2xl border-4 border-[#FDDC11] shadow-[0_0_30px_rgba(253,220,17,0.4)] object-cover" />
+                <div className="absolute -top-4 -left-4 bg-[#FDDC11] text-black font-black px-4 py-1 rounded-full flex items-center gap-2 shadow-lg transform -rotate-6 border-2 border-white"><Crown size={16} fill="black" /> KING OF THE HILL</div>
+             </div>
+             <div className="flex-1 text-center md:text-left z-10">
+                <h2 className="text-4xl font-black text-white mb-2 leading-tight">{name?.toString()} <span className="text-[#FDDC11] text-2xl">[{symbol?.toString()}]</span></h2>
+                <div className="flex items-center justify-center md:justify-start gap-4 mb-4">
+                   <span className="px-3 py-1 bg-white/10 rounded-lg text-sm font-bold text-green-400 flex items-center gap-2"><Flame size={14} className="fill-green-400"/> Bonding Curve: {realProgress.toFixed(2)}%</span>
+                   <span className="px-3 py-1 bg-white/10 rounded-lg text-sm font-bold text-blue-400 flex items-center gap-2"><Activity size={14}/> Top Volume</span>
+                </div>
+                <div className="h-4 bg-white/10 rounded-full overflow-hidden border border-white/5 w-full max-w-md"><motion.div initial={{ width: 0 }} animate={{ width: `${realProgress}%` }} transition={{ duration: 1.5 }} className="h-full bg-gradient-to-r from-[#FDDC11] to-red-500 shadow-[0_0_20px_#FDDC11]" /></div>
+                <p className="text-gray-400 text-sm mt-2">Closest to graduation! Buy now before it hits DEX.</p>
+             </div>
+          </div>
+        </div>
+      </motion.div>
+    </Link>
+  );
+}
+
+// --- ANA SAYFA ---
 export default function HomePage() {
   const [isMounted, setIsMounted] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("trending");
+  const [searchQuery, setSearchQuery] = useState(""); // ARAMA STATE
   const [formData, setFormData] = useState({ name: "", ticker: "", desc: "", twitter: "", telegram: "", website: "", image: "" });
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -141,12 +160,22 @@ export default function HomePage() {
   const { data: allTokens } = useReadContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "getAllTokens" });
   const [orderedTokens, setOrderedTokens] = useState<string[]>([]);
   
+  // TOKENLARI FİLTRELEME (Search + Hidden)
   useEffect(() => { 
     if (allTokens) { 
-      const tokens = (allTokens as string[]).filter(t => !HIDDEN_TOKENS.includes(t.toLowerCase())).reverse();
+      const tokens = (allTokens as string[])
+        .filter(t => !HIDDEN_TOKENS.includes(t.toLowerCase()))
+        .reverse(); // En yeniden eskiye
       setOrderedTokens(tokens);
     } 
   }, [allTokens]);
+
+  const filteredTokens = orderedTokens.filter(tokenAddr => {
+      // Basit arama: Token adresine göre filtrele (İsim ve sembolü burada filtrelemek için her tokenın verisini çekmek gerekir, bu da yavaşlatır. Şimdilik adres bazlı veya backend ile yapılmalı. 
+      // Ancak kullanıcı deneyimi için burada sadece listeyi gösteriyorum).
+      // İstersen Contract'tan tüm isimleri çekip filtreleyebiliriz ama 1000 tokenda kasar.
+      return tokenAddr.toLowerCase().includes(searchQuery.toLowerCase());
+  });
 
   useWatchContractEvent({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, eventName: 'TokenCreated', onLogs(logs: any) { 
     if (logs[0]?.args?.token) { setOrderedTokens(prev => [logs[0].args.token, ...prev]); toast.success("🚀 New token launched!"); } 
@@ -189,6 +218,7 @@ export default function HomePage() {
       <div style={{ position: 'fixed', bottom: '-20%', left: '-10%', width: '600px', height: '600px', background: 'radial-gradient(circle, rgba(147,51,234,0.12) 0%, transparent 70%)', filter: 'blur(80px)', zIndex: 0, animation: 'float 10s ease-in-out infinite reverse' }} />
       <style>{`@keyframes float { 0%, 100% { transform: translateY(0px); } 50% { transform: translateY(20px); } }`}</style>
 
+      {/* Header */}
       <header style={{ position: 'sticky', top: 0, zIndex: 40, backgroundColor: 'rgba(10, 14, 39, 0.85)', backdropFilter: 'blur(20px)', borderBottom: '1px solid rgba(253, 220, 17, 0.1)', padding: '16px 0' }}>
         <div style={{ maxWidth: '1280px', margin: '0 auto', padding: '0 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -198,6 +228,11 @@ export default function HomePage() {
           <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
             <button onClick={() => setIsModalOpen(true)} style={{ background: 'linear-gradient(135deg, #FDDC11, #9333ea)', color: '#000', border: 'none', padding: '10px 20px', borderRadius: '10px', fontWeight: '700', fontSize: '13px', cursor: 'pointer', transition: 'all 0.3s', boxShadow: '0 0 20px rgba(253, 220, 17, 0.3)', display: 'flex', alignItems: 'center', gap: '6px' }} onMouseEnter={(e) => e.currentTarget.style.boxShadow = '0 0 30px rgba(253, 220, 17, 0.5)'} onMouseLeave={(e) => e.currentTarget.style.boxShadow = '0 0 20px rgba(253, 220, 17, 0.3)'}><Rocket size={16} /> LAUNCH</button>
             <div style={{ transform: 'scale(0.9)' }}><ConnectButton showBalance={false} accountStatus="avatar" chainStatus="none" /></div>
+            
+            {/* PROFILE LINK */}
+            <Link href="/profile" className="p-2.5 bg-white/5 hover:bg-white/10 rounded-xl transition-colors border border-white/5">
+                <UserIcon size={20} className="text-[#FDDC11]" />
+            </Link>
           </div>
         </div>
       </header>
@@ -211,6 +246,18 @@ export default function HomePage() {
           </div>
         )}
 
+        {/* SEARCH BAR EKLENDİ */}
+        <div className="mb-8 relative max-w-md mx-auto">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+            <input 
+                type="text" 
+                placeholder="Search token address..." 
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full bg-[#0f1225] border border-white/10 rounded-full py-3 pl-12 pr-6 text-white outline-none focus:border-[#FDDC11] transition-colors"
+            />
+        </div>
+
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px', marginBottom: '60px' }}>
           {[{ label: 'Pairs', val: orderedTokens.length.toString(), icon: '🚀' }, { label: 'Volume', val: '$0', icon: '📊' }, { label: 'Traders', val: '0', icon: '👥' }, { label: 'Avg ROI', val: '0%', icon: '📈' }].map((s, i) => (
             <div key={i} style={{ background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.4), rgba(15, 23, 42, 0.6))', border: '1px solid rgba(253, 220, 17, 0.1)', borderRadius: '16px', padding: '24px', backdropFilter: 'blur(20px)', transition: 'all 0.3s', cursor: 'pointer' }} onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'rgba(253, 220, 17, 0.3)'; e.currentTarget.style.transform = 'translateY(-4px)'; }} onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'rgba(253, 220, 17, 0.1)'; e.currentTarget.style.transform = 'translateY(0)'; }}>
@@ -223,10 +270,11 @@ export default function HomePage() {
         <div style={{ display: 'flex', gap: '8px', marginBottom: '32px', overflowX: 'auto', paddingBottom: '8px' }}>{['Trending', 'New', 'Gainers', 'Volume'].map(t => (<button key={t} onClick={() => setActiveTab(t.toLowerCase())} style={{ padding: '10px 20px', borderRadius: '10px', fontSize: '13px', fontWeight: '700', border: activeTab === t.toLowerCase() ? '2px solid #FDDC11' : '1px solid rgba(255, 255, 255, 0.1)', background: activeTab === t.toLowerCase() ? 'linear-gradient(135deg, #FDDC11, #9333ea)' : 'transparent', color: activeTab === t.toLowerCase() ? '#000' : '#94a3b8', cursor: 'pointer', transition: 'all 0.3s', whiteSpace: 'nowrap', boxShadow: activeTab === t.toLowerCase() ? '0 0 20px rgba(253, 220, 17, 0.3)' : 'none' }}>{t}</button>))}</div>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '24px' }}>
-          {orderedTokens.length > 0 ? (orderedTokens.map((addr) => <DarkTokenCard key={addr} tokenAddress={addr as `0x${string}`} />)) : (<div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '60px 20px', color: '#94a3b8' }}><div style={{ fontSize: '18px', fontWeight: '600' }}>No tokens yet. Be the first to launch!</div></div>)}
+          {filteredTokens.length > 0 ? (filteredTokens.map((addr) => <DarkTokenCard key={addr} tokenAddress={addr as `0x${string}`} />)) : (<div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '60px 20px', color: '#94a3b8' }}><div style={{ fontSize: '18px', fontWeight: '600' }}>No tokens found.</div></div>)}
         </div>
       </main>
 
+      {/* Modal Kodu Aynı Kalıyor */}
       {isModalOpen && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
           <div onClick={() => setIsModalOpen(false)} style={{ position: 'absolute', inset: 0, backgroundColor: 'rgba(0, 0, 0, 0.8)', backdropFilter: 'blur(12px)' }} />
