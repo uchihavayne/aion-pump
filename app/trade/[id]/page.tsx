@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, use } from "react";
-import { ArrowLeft, Twitter, Globe, Send, Copy, TrendingUp, MessageSquare, User, ExternalLink, Coins, Users, PieChart as PieIcon, Settings, Share2 } from "lucide-react";
+import { ArrowLeft, Twitter, Globe, Send, Copy, TrendingUp, MessageSquare, User, ExternalLink, Coins, Users, PieChart as PieIcon, Settings, Share2, Star, User as UserIcon } from "lucide-react";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import Link from "next/link";
 import { useWriteContract, useWaitForTransactionReceipt, useReadContract, useWatchContractEvent, useAccount, usePublicClient, useBalance } from "wagmi"; 
@@ -10,12 +10,11 @@ import { CONTRACT_ADDRESS, CONTRACT_ABI } from "../../contract";
 import { ComposedChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, PieChart, Pie } from 'recharts';
 import toast, { Toaster } from 'react-hot-toast';
 import { motion } from "framer-motion";
-import Confetti from 'react-confetti'; // KONFETİ EKLENDİ
+import Confetti from 'react-confetti';
 
 const getTokenImage = (address: string, customImage?: string) => 
   customImage || `https://api.dyneui.com/avatar/abstract?seed=${address}&size=400&background=000000&color=FDDC11&pattern=circuit&variance=0.7`;
 
-// Format Yardımcıları
 const formatTokenAmount = (num: number) => {
   if (num >= 1000000) return (num / 1000000).toFixed(2) + "M";
   if (num >= 1000) return (num / 1000).toFixed(2) + "k";
@@ -39,9 +38,10 @@ export default function TradePage(props: PageProps) {
   const [bottomTab, setBottomTab] = useState<"trades" | "chat" | "holders">("trades");
   const [amount, setAmount] = useState("");
   const [isMounted, setIsMounted] = useState(false);
-  const [slippage, setSlippage] = useState(1); 
-  const [showConfetti, setShowConfetti] = useState(false); // Konfeti State
-  
+  const [slippage, setSlippage] = useState(1);
+  const [showConfetti, setShowConfetti] = useState(false);
+  const [isFav, setIsFav] = useState(false);
+
   // Data States
   const [chartData, setChartData] = useState<any[]>([]);
   const [tradeHistory, setTradeHistory] = useState<any[]>([]);
@@ -67,14 +67,9 @@ export default function TradePage(props: PageProps) {
   const tokensSold = salesData ? (salesData[3] as bigint) : 0n;
   const creatorAddress = salesData ? salesData[0] : "";
   
-  // Bonding Curve Progress (Supply bazlı)
   const progress = Number((tokensSold * 100n) / 1000000000000000000000000000n);
   const realProgress = Math.min(progress, 100);
-
-  // Migration (Mezuniyet) Progress - Hedef 3000 MATIC Likidite varsayımıyla
-  // (Formülasyonu basitleştirdik, gerçek bonding curve hedefine göre ayarlanabilir)
   const migrationProgress = Math.min((parseFloat(collateral) / 3000) * 100, 100);
-
   const currentPrice = chartData.length > 0 ? chartData[chartData.length - 1].price : 0.000001;
   const marketCap = currentPrice * 1_000_000_000;
 
@@ -84,11 +79,24 @@ export default function TradePage(props: PageProps) {
   const web = metadata ? metadata[3] : "";
   const image = metadata ? metadata[4] : "";
 
-  // TWITTER SHARE FONKSİYONU
-  const shareOnTwitter = () => {
-    const text = `Just bought $${symbol} on AION Pump! 🚀\n\nMarket Cap: ${marketCap.toFixed(2)} MATIC\nBonding Curve: ${realProgress.toFixed(1)}%\n\nDon't miss out! 👇\n`;
-    const url = `https://aion-pump.vercel.app/trade/${tokenAddress}`;
-    window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`, '_blank');
+  // FAVORİ YÖNETİMİ
+  useEffect(() => {
+    const favs = JSON.parse(localStorage.getItem("favorites") || "[]");
+    setIsFav(favs.includes(tokenAddress));
+  }, [tokenAddress]);
+
+  const toggleFav = () => {
+    const favs = JSON.parse(localStorage.getItem("favorites") || "[]");
+    let newFavs;
+    if (favs.includes(tokenAddress)) {
+        newFavs = favs.filter((t: string) => t !== tokenAddress);
+        toast.success("Removed from watchlist");
+    } else {
+        newFavs = [...favs, tokenAddress];
+        toast.success("Added to watchlist");
+    }
+    localStorage.setItem("favorites", JSON.stringify(newFavs));
+    setIsFav(!isFav);
   };
 
   const fetchHistory = async () => {
@@ -105,7 +113,6 @@ export default function TradePage(props: PageProps) {
       const allEvents = [...relevantBuys.map(l => ({ ...l, type: "BUY" })), ...relevantSells.map(l => ({ ...l, type: "SELL" }))]
         .sort((a, b) => Number(a.blockNumber) - Number(b.blockNumber) || a.logIndex - b.logIndex);
 
-      // Holder & Pie Chart
       const balances: Record<string, bigint> = {};
       relevantBuys.forEach((l:any) => { balances[l.args.buyer] = (balances[l.args.buyer] || 0n) + (l.args.amountTokens || 0n); });
       relevantSells.forEach((l:any) => { balances[l.args.seller] = (balances[l.args.seller] || 0n) - (l.args.amountTokens || 0n); });
@@ -172,7 +179,6 @@ export default function TradePage(props: PageProps) {
     
     setChartData(prev => [...prev, { name: "New", price: executionPrice, isUp: type === "BUY", fill: type === "BUY" ? '#10b981' : '#ef4444' }]);
     setTradeHistory(prev => [{ user: type === "BUY" ? log.args.buyer : log.args.seller, type: type, maticAmount: maticVal.toFixed(4), tokenAmount: tokenVal, price: executionPrice.toFixed(8), time: "Just now" }, ...prev]);
-
     refetchSales(); refetchTokenBalance(); refetchMatic();
   };
 
@@ -191,25 +197,16 @@ export default function TradePage(props: PageProps) {
 
   useEffect(() => { 
     if (isConfirmed) { 
-        toast.dismiss('tx'); 
-        toast.success("Success!"); 
-        
-        // KONFETİ PATLAT (Sadece BUY işleminde)
-        if(activeTab === "buy") {
-            setShowConfetti(true);
-            setTimeout(() => setShowConfetti(false), 5000);
-        }
-
+        toast.dismiss('tx'); toast.success("Success!"); 
+        if(activeTab === "buy") { setShowConfetti(true); setTimeout(() => setShowConfetti(false), 5000); }
         const val = parseFloat(amount);
         const estPrice = currentPrice > 0 ? currentPrice : 0.000001;
         const estTokens = activeTab === "buy" ? val / estPrice : val;
         const estMatic = activeTab === "buy" ? val : val * estPrice;
         const newTrade = { user: address || "You", type: activeTab === "buy" ? "BUY" : "SELL", maticAmount: estMatic.toFixed(4), tokenAmount: BigInt(Math.floor(estTokens * 10**18)), price: estPrice.toFixed(8), time: "Just now" };
-        
         setTradeHistory(prev => [newTrade, ...prev]);
         setChartData(prev => [...prev, { name: "New", price: estPrice, isUp: activeTab === "buy", fill: activeTab === "buy" ? '#10b981' : '#ef4444' }]);
-        setAmount(""); 
-        refetchSales(); refetchTokenBalance(); refetchMatic(); setTimeout(fetchHistory, 2000);
+        setAmount(""); refetchSales(); refetchTokenBalance(); refetchMatic(); setTimeout(fetchHistory, 2000);
     } 
   }, [isConfirmed]);
 
@@ -228,7 +225,6 @@ export default function TradePage(props: PageProps) {
     <div style={{ backgroundColor: '#0a0e27', color: '#fff', minHeight: '100vh', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', position: 'relative', overflow: 'hidden', backgroundImage: 'radial-gradient(circle at 50% 0%, #1e1b4b 0%, #0a0e27 60%)' }}>
       <Toaster position="top-right" toastOptions={{ style: { background: '#1F2128', color: '#fff', border: '1px solid #333' } }} />
       {showConfetti && <Confetti width={window.innerWidth} height={window.innerHeight} recycle={false} />}
-      
       <div style={{ position: 'fixed', top: '-20%', right: '-10%', width: '600px', height: '600px', background: 'radial-gradient(circle, rgba(253,220,17,0.08) 0%, transparent 70%)', filter: 'blur(80px)', zIndex: 0 }} />
       <div style={{ position: 'fixed', bottom: '-20%', left: '-10%', width: '600px', height: '600px', background: 'radial-gradient(circle, rgba(147,51,234,0.08) 0%, transparent 70%)', filter: 'blur(80px)', zIndex: 0 }} />
 
@@ -238,6 +234,10 @@ export default function TradePage(props: PageProps) {
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', backgroundColor: 'rgba(30, 41, 59, 0.5)', borderRadius: '8px', border: '1px solid rgba(253, 220, 17, 0.1)', fontSize: '12px', color: '#94a3b8', fontFamily: 'monospace', cursor: 'pointer', transition: 'all 0.3s' }} onClick={() => { navigator.clipboard.writeText(tokenAddress); toast.success("Copied!"); }}><span style={{ color: '#FDDC11' }}>CA:</span> {tokenAddress.slice(0,6)}...{tokenAddress.slice(-4)}<Copy size={12} /></div>
             <div style={{ transform: 'scale(0.9)' }}><ConnectButton showBalance={false} accountStatus="avatar" chainStatus="none" /></div>
+            {/* PROFILE ICON LINK */}
+            <Link href="/profile" className="p-2.5 bg-white/5 hover:bg-white/10 rounded-xl transition-colors border border-white/5 group">
+                <UserIcon size={20} className="text-gray-400 group-hover:text-[#FDDC11] transition-colors" />
+            </Link>
           </div>
         </div>
       </header>
@@ -249,15 +249,20 @@ export default function TradePage(props: PageProps) {
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} style={{ display: 'flex', gap: '20px', padding: '24px', borderRadius: '20px', border: '1px solid rgba(253, 220, 17, 0.15)', background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.5), rgba(15, 23, 42, 0.7))', backdropFilter: 'blur(20px)', gridColumn: '1 / -1' }}>
               <img src={getTokenImage(tokenAddress, image)} alt="token" style={{ width: '80px', height: '80px', borderRadius: '16px', border: '1px solid rgba(253, 220, 17, 0.2)', objectFit: 'cover', flexShrink: 0 }} />
               <div style={{ flex: 1 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}><h1 style={{ fontSize: '32px', fontWeight: '900', margin: 0 }}>{name?.toString() || "Token"}</h1><span style={{ fontSize: '14px', fontWeight: '700', color: '#94a3b8' }}>[{symbol?.toString() || "TKN"}]</span></div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
+                    <h1 style={{ fontSize: '32px', fontWeight: '900', margin: 0 }}>{name?.toString() || "Token"}</h1>
+                    <span style={{ fontSize: '14px', fontWeight: '700', color: '#94a3b8' }}>[{symbol?.toString() || "TKN"}]</span>
+                    {/* FAV BUTTON */}
+                    <button onClick={toggleFav} className="p-2 bg-white/5 rounded-full hover:bg-white/10 transition-colors">
+                        <Star size={18} className={isFav ? "text-[#FDDC11] fill-[#FDDC11]" : "text-gray-400"} />
+                    </button>
+                </div>
                 {desc && <p style={{ fontSize: '14px', color: '#94a3b8', marginBottom: '12px' }}>{desc}</p>}
                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                   {twitter && <SocialIcon href={twitter} icon={<Twitter size={16} />} />}
                   {telegram && <SocialIcon href={telegram} icon={<Send size={16} />} />}
                   {web && <SocialIcon href={web} icon={<Globe size={16} />} />}
-                  <a href={`https://polygonscan.com/address/${tokenAddress}`} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#94a3b8', textDecoration: 'none' }}><ExternalLink size={12} /> Explorer</a>
-                  {/* TWITTER SHARE BUTTON */}
-                  <button onClick={shareOnTwitter} className="ml-auto flex items-center gap-2 bg-[#1DA1F2]/20 text-[#1DA1F2] px-3 py-1.5 rounded-lg text-xs font-bold border border-[#1DA1F2]/30 hover:bg-[#1DA1F2]/30 transition-all"><Share2 size={12}/> Share Trade</button>
+                  <a href={`https://polygonscan.com/address/${tokenAddress}`} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#94a3b8', textDecoration: 'none' }}><ExternalLink size={12} /> Explore</a>
                 </div>
               </div>
             </motion.div>
@@ -358,7 +363,7 @@ export default function TradePage(props: PageProps) {
                   ))}
                 </div>
 
-                {/* SLIPPAGE SETTINGS (EKLENDİ) */}
+                {/* SLIPPAGE SETTINGS */}
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', alignItems: 'center' }}>
                     <Settings size={14} className="text-gray-500" />
                     <span style={{ fontSize: '12px', color: '#64748b' }}>Slippage:</span>
@@ -381,8 +386,6 @@ export default function TradePage(props: PageProps) {
 
             {/* PROGRESS BARS */}
             <div style={{ borderRadius: '20px', border: '1px solid rgba(253, 220, 17, 0.15)', background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.5), rgba(15, 23, 42, 0.7))', backdropFilter: 'blur(20px)', padding: '24px' }}>
-              
-              {/* Bonding Curve Progress */}
               <div style={{ marginBottom: '16px' }}>
                 <div style={{ fontSize: '12px', color: '#94a3b8', fontWeight: '600', marginBottom: '8px' }}>Bonding Curve</div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '12px' }}>
@@ -394,7 +397,6 @@ export default function TradePage(props: PageProps) {
                 </div>
               </div>
 
-              {/* MIGRATION PROGRESS (EKLENDİ) */}
               <div style={{ marginBottom: '16px' }}>
                 <div style={{ fontSize: '12px', color: '#94a3b8', fontWeight: '600', marginBottom: '8px' }}>Dex Graduation</div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '12px' }}>
