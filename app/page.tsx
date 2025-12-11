@@ -30,7 +30,6 @@ function DarkTokenCard({ tokenAddress }: { tokenAddress: `0x${string}` }) {
   const realProgress = progress > 100 ? 100 : progress;
   const tokenImage = getTokenImage(tokenAddress);
 
-  // GERÇEK HOLDER SAYISINI ÇEKME
   useEffect(() => {
     const getHolders = async () => {
       if(!publicClient) return;
