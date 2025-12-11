@@ -1,18 +1,25 @@
 "use client";
 
 import { useState, useEffect, useRef, use } from "react";
-import { ArrowLeft, Twitter, Globe, Send, Copy, TrendingUp, MessageSquare, User, ExternalLink, Coins, Users } from "lucide-react"; // Users EKLENDI
+import { ArrowLeft, Twitter, Globe, Send, Copy, TrendingUp, MessageSquare, User, ExternalLink, Coins, Users, PieChart as PieIcon } from "lucide-react";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import Link from "next/link";
 import { useWriteContract, useWaitForTransactionReceipt, useReadContract, useWatchContractEvent, useAccount, usePublicClient, useBalance } from "wagmi"; 
 import { parseEther, formatEther, erc20Abi } from "viem"; 
 import { CONTRACT_ADDRESS, CONTRACT_ABI } from "../../contract"; 
-import { ComposedChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+// PieChart eklendi
+import { ComposedChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, PieChart, Pie } from 'recharts';
 import toast, { Toaster } from 'react-hot-toast';
 import { motion } from "framer-motion";
 
 const getTokenImage = (address: string, customImage?: string) => 
   customImage || `https://api.dyneui.com/avatar/abstract?seed=${address}&size=400&background=000000&color=FDDC11&pattern=circuit&variance=0.7`;
+
+const formatTokenAmount = (num: number) => {
+  if (num >= 1000000) return (num / 1000000).toFixed(2) + "M";
+  if (num >= 1000) return (num / 1000).toFixed(2) + "k";
+  return num.toFixed(2);
+};
 
 const CustomCandle = (props: any) => {
   const { x, y, width, height, fill } = props;
@@ -28,14 +35,15 @@ export default function TradePage(props: PageProps) {
   const publicClient = usePublicClient(); 
 
   const [activeTab, setActiveTab] = useState<"buy" | "sell">("buy");
-  const [bottomTab, setBottomTab] = useState<"trades" | "chat" | "holders">("trades"); // Holders tab'i eklendi
+  const [bottomTab, setBottomTab] = useState<"trades" | "chat" | "holders">("trades");
   const [amount, setAmount] = useState("");
   const [isMounted, setIsMounted] = useState(false);
   
   // Data States
   const [chartData, setChartData] = useState<any[]>([]);
   const [tradeHistory, setTradeHistory] = useState<any[]>([]);
-  const [holderList, setHolderList] = useState<any[]>([]); // Holder Listesi
+  const [holderList, setHolderList] = useState<any[]>([]); 
+  const [pieData, setPieData] = useState<any[]>([]); // Pasta Grafiği Verisi
   const [comments, setComments] = useState<any[]>([]);
   const [commentInput, setCommentInput] = useState("");
   const processedTxHashes = useRef(new Set());
@@ -54,19 +62,18 @@ export default function TradePage(props: PageProps) {
 
   const collateral = salesData ? formatEther(salesData[1] as bigint) : "0";
   const tokensSold = salesData ? (salesData[3] as bigint) : 0n;
-  const creatorAddress = salesData ? salesData[0] : ""; // Creator Adresi
+  const creatorAddress = salesData ? salesData[0] : "";
   
   const progress = Number((tokensSold * 100n) / 1000000000000000000000000000n);
   const realProgress = Math.min(progress, 100);
   const currentPrice = chartData.length > 0 ? chartData[chartData.length - 1].price : 0.000001;
   const marketCap = currentPrice * 1_000_000_000;
 
-  // Metadata'dan resmi al
   const desc = metadata ? metadata[0] : "";
   const twitter = metadata ? metadata[1] : "";
   const telegram = metadata ? metadata[2] : "";
   const web = metadata ? metadata[3] : "";
-  const image = metadata ? metadata[4] : ""; // Resim
+  const image = metadata ? metadata[4] : "";
 
   const fetchHistory = async () => {
     if (!publicClient) return;
@@ -82,35 +89,33 @@ export default function TradePage(props: PageProps) {
       const allEvents = [...relevantBuys.map(l => ({ ...l, type: "BUY" })), ...relevantSells.map(l => ({ ...l, type: "SELL" }))]
         .sort((a, b) => Number(a.blockNumber) - Number(b.blockNumber) || a.logIndex - b.logIndex);
 
-      // --- HOLDER HESAPLAMA (Client-Side Indexing) ---
+      // --- HOLDER & PIE CHART HESAPLAMA ---
       const balances: Record<string, bigint> = {};
-      // Creator'a başlangıçta tüm supply'ı verme veya bonding curve olduğu için 0'dan başlatma mantığı
-      // Burada sadece Buy/Sell eventlerine göre bakiye hesaplıyoruz.
-      
-      relevantBuys.forEach((l:any) => {
-          const buyer = l.args.buyer;
-          const amount = l.args.amountTokens || 0n;
-          balances[buyer] = (balances[buyer] || 0n) + amount;
-      });
-      
-      relevantSells.forEach((l:any) => {
-          const seller = l.args.seller;
-          const amount = l.args.amountTokens || 0n;
-          balances[seller] = (balances[seller] || 0n) - amount;
-      });
+      relevantBuys.forEach((l:any) => { balances[l.args.buyer] = (balances[l.args.buyer] || 0n) + (l.args.amountTokens || 0n); });
+      relevantSells.forEach((l:any) => { balances[l.args.seller] = (balances[l.args.seller] || 0n) - (l.args.amountTokens || 0n); });
 
-      // Listeye çevir ve sırala
       const sortedHolders = Object.entries(balances)
-        .filter(([_, bal]) => bal > 0n) // Bakiyesi 0 olanları ele
+        .filter(([_, bal]) => bal > 0n)
         .sort(([, a], [, b]) => (b > a ? 1 : -1))
         .map(([addr, bal]) => ({
             address: addr,
             balance: bal,
-            percentage: (Number(bal) * 100) / 1_000_000_000 / 10**18 // Yüzdelik dilim
+            percentage: (Number(bal) * 100) / 1_000_000_000 / 10**18 
         }));
       
       setHolderList(sortedHolders);
-      // ------------------------------------------------
+
+      // Pie Chart Verisi (İlk 5 Holder + Diğerleri)
+      const topHolders = sortedHolders.slice(0, 5);
+      const otherBalance = sortedHolders.slice(5).reduce((acc, curr) => acc + curr.percentage, 0);
+      const chartDataPie = topHolders.map((h, i) => ({
+          name: `${h.address.slice(0,4)}...`,
+          value: h.percentage,
+          fill: i === 0 ? '#FDDC11' : i === 1 ? '#fbbf24' : i === 2 ? '#d97706' : '#b45309'
+      }));
+      if (otherBalance > 0) chartDataPie.push({ name: 'Others', value: otherBalance, fill: '#4b5563' });
+      setPieData(chartDataPie);
+      // --------------------------------------
 
       const newChartData: any[] = [];
       const newTrades: any[] = [];
@@ -145,11 +150,12 @@ export default function TradePage(props: PageProps) {
 
   useEffect(() => {
     fetchHistory();
+    const interval = setInterval(fetchHistory, 5000);
     const storedComments = localStorage.getItem(`comments_${tokenAddress}`);
     if(storedComments) setComments(JSON.parse(storedComments));
+    return () => clearInterval(interval);
   }, [tokenAddress, publicClient]);
 
-  // CANLI DİNLEME (Kısaltıldı, mantık aynı)
   useWatchContractEvent({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, eventName: 'Buy', onLogs(logs: any) { processLiveLog(logs[0], "BUY"); } });
   useWatchContractEvent({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, eventName: 'Sell', onLogs(logs: any) { processLiveLog(logs[0], "SELL"); } });
 
@@ -157,8 +163,23 @@ export default function TradePage(props: PageProps) {
     if(log.args.token.toLowerCase() !== tokenAddress.toLowerCase()) return;
     if(processedTxHashes.current.has(log.transactionHash)) return;
     processedTxHashes.current.add(log.transactionHash);
-    // ... (Canlı update kodları aynı, tekrar yazıp uzatmıyorum ama burası çalışıyor)
-    refetchSales(); refetchTokenBalance(); refetchMatic(); setTimeout(fetchHistory, 1000);
+
+    const maticVal = parseFloat(formatEther(log.args.amountMATIC || 0n));
+    const tokenVal = parseFloat(formatEther(log.args.amountTokens || 0n));
+    const executionPrice = tokenVal > 0 ? maticVal / tokenVal : (chartData.length > 0 ? chartData[chartData.length-1].price : 0);
+    
+    setChartData(prev => [...prev, { name: "New", price: executionPrice, isUp: type === "BUY", fill: type === "BUY" ? '#10b981' : '#ef4444' }]);
+    
+    setTradeHistory(prev => [{ 
+        user: type === "BUY" ? log.args.buyer : log.args.seller, 
+        type: type, 
+        maticAmount: maticVal.toFixed(4), 
+        tokenAmount: tokenVal, 
+        price: executionPrice.toFixed(8), 
+        time: "Just now" 
+    }, ...prev]);
+
+    refetchSales(); refetchTokenBalance(); refetchMatic();
   };
 
   const { data: hash, isPending, writeContract } = useWriteContract();
@@ -175,7 +196,17 @@ export default function TradePage(props: PageProps) {
   };
 
   useEffect(() => { 
-    if (isConfirmed) { toast.dismiss('tx'); toast.success("Success!"); setAmount(""); refetchSales(); refetchTokenBalance(); refetchMatic(); setTimeout(fetchHistory, 2000); } 
+    if (isConfirmed) { 
+        toast.dismiss('tx'); toast.success("Success!"); setAmount(""); 
+        const val = parseFloat(amount);
+        const estPrice = currentPrice > 0 ? currentPrice : 0.000001;
+        const estTokens = activeTab === "buy" ? val / estPrice : val;
+        const estMatic = activeTab === "buy" ? val : val * estPrice;
+        const newTrade = { user: address || "You", type: activeTab === "buy" ? "BUY" : "SELL", maticAmount: estMatic.toFixed(4), tokenAmount: BigInt(Math.floor(estTokens * 10**18)), price: estPrice.toFixed(8), time: "Just now" };
+        setTradeHistory(prev => [newTrade, ...prev]);
+        setChartData(prev => [...prev, { name: "New", price: estPrice, isUp: activeTab === "buy", fill: activeTab === "buy" ? '#10b981' : '#ef4444' }]);
+        refetchSales(); refetchTokenBalance(); refetchMatic(); setTimeout(fetchHistory, 2000);
+    } 
   }, [isConfirmed]);
 
   const handleComment = () => {
@@ -184,15 +215,6 @@ export default function TradePage(props: PageProps) {
     setComments([newC, ...comments]);
     localStorage.setItem(`comments_${tokenAddress}`, JSON.stringify([newC, ...comments]));
     setCommentInput("");
-  };
-
-  // Helper
-  const formatTokenAmount = (val: any) => {
-      const num = typeof val === 'bigint' ? parseFloat(formatEther(val)) : parseFloat(val);
-      if (isNaN(num)) return "0";
-      if (num >= 1000000) return (num / 1000000).toFixed(2) + "M";
-      if (num >= 1000) return (num / 1000).toFixed(2) + "k";
-      return num.toFixed(2);
   };
 
   useEffect(() => { setIsMounted(true); }, []);
@@ -221,10 +243,7 @@ export default function TradePage(props: PageProps) {
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} style={{ display: 'flex', gap: '20px', padding: '24px', borderRadius: '20px', border: '1px solid rgba(253, 220, 17, 0.15)', background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.5), rgba(15, 23, 42, 0.7))', backdropFilter: 'blur(20px)', gridColumn: '1 / -1' }}>
               <img src={getTokenImage(tokenAddress, image)} alt="token" style={{ width: '80px', height: '80px', borderRadius: '16px', border: '1px solid rgba(253, 220, 17, 0.2)', objectFit: 'cover', flexShrink: 0 }} />
               <div style={{ flex: 1 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
-                  <h1 style={{ fontSize: '32px', fontWeight: '900', margin: 0 }}>{name?.toString() || "Token"}</h1>
-                  <span style={{ fontSize: '14px', fontWeight: '700', color: '#94a3b8' }}>[{symbol?.toString() || "TKN"}]</span>
-                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}><h1 style={{ fontSize: '32px', fontWeight: '900', margin: 0 }}>{name?.toString() || "Token"}</h1><span style={{ fontSize: '14px', fontWeight: '700', color: '#94a3b8' }}>[{symbol?.toString() || "TKN"}]</span></div>
                 {desc && <p style={{ fontSize: '14px', color: '#94a3b8', marginBottom: '12px' }}>{desc}</p>}
                 <div style={{ display: 'flex', gap: '8px' }}>
                   {twitter && <SocialIcon href={twitter} icon={<Twitter size={16} />} />}
@@ -246,9 +265,7 @@ export default function TradePage(props: PageProps) {
                     <XAxis dataKey="name" stroke="#666" style={{ fontSize: '12px' }} /><YAxis domain={['auto', 'auto']} stroke="#666" style={{ fontSize: '12px' }} /><Tooltip contentStyle={{ backgroundColor: '#1F2128', border: '1px solid rgba(253, 220, 17, 0.2)', borderRadius: '8px', color: '#fff' }} /><Bar dataKey="price" shape={<CustomCandle />} isAnimationActive={false}>{chartData.map((entry, index) => (<Cell key={`cell-${index}`} fill={entry.fill} />))}</Bar>
                   </ComposedChart>
                 </ResponsiveContainer>
-              ) : (
-                <div style={{ height: '280px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b' }}>Waiting for trades...</div>
-              )}
+              ) : <div style={{ height: '280px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b' }}>Waiting for trades...</div>}
             </motion.div>
 
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} style={{ borderRadius: '20px', border: '1px solid rgba(253, 220, 17, 0.15)', background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.5), rgba(15, 23, 42, 0.7))', backdropFilter: 'blur(20px)', overflow: 'hidden', gridColumn: '1 / -1' }}>
@@ -271,6 +288,16 @@ export default function TradePage(props: PageProps) {
                   </div>
                 ) : bottomTab === "holders" ? (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      <div style={{ height: '200px', width: '100%', marginBottom: '16px' }}>
+                         <ResponsiveContainer width="100%" height="100%">
+                            <PieChart>
+                               <Pie data={pieData} cx="50%" cy="50%" innerRadius={40} outerRadius={80} paddingAngle={2} dataKey="value">
+                                  {pieData.map((entry, index) => (<Cell key={`cell-${index}`} fill={entry.fill} />))}
+                               </Pie>
+                               <Tooltip contentStyle={{ backgroundColor: '#1F2128', border: '1px solid #333', borderRadius: '8px' }} />
+                            </PieChart>
+                         </ResponsiveContainer>
+                      </div>
                       <div className="grid grid-cols-3 text-[10px] font-bold text-gray-500 uppercase px-3 pb-2"><div>Address</div><div>Balance</div><div className="text-right">% Held</div></div>
                       {holderList.map((h, i) => (
                           <div key={i} className="grid grid-cols-3 text-xs py-3 px-3 hover:bg-white/5 rounded-lg transition-colors border-b border-white/5 last:border-0">
