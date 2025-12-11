@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, use } from "react"; // 'use' import edildi
+import { useState, useEffect, useRef, use } from "react";
 import { ArrowLeft, Twitter, Globe, Send, Copy, TrendingUp, MessageSquare, User, ExternalLink, Coins } from "lucide-react";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import Link from "next/link";
@@ -14,22 +14,26 @@ import { motion } from "framer-motion";
 const getTokenImage = (address: string) => 
   `https://api.dyneui.com/avatar/abstract?seed=${address}&size=400&background=000000&color=FDDC11&pattern=circuit&variance=0.7`;
 
+// Formatlama Yardımcıları
+const formatTokenAmount = (num: number) => {
+  if (num >= 1000000) return (num / 1000000).toFixed(2) + "M";
+  if (num >= 1000) return (num / 1000).toFixed(2) + "k";
+  return num.toFixed(2);
+};
+
 const CustomCandle = (props: any) => {
   const { x, y, width, height, fill } = props;
   return <rect x={x} y={y} width={width} height={Math.max(height, 2)} fill={fill} rx={2} />;
 };
 
-// Bu tip tanımlaması Next.js versiyon uyumluluğu için önemlidir
 type PageProps = {
   params: Promise<{ id: string }>;
 };
 
 export default function TradePage(props: PageProps) {
-  // Params'ı güvenli bir şekilde çözüyoruz (Next.js 15 uyumlu)
   const params = use(props.params);
   const id = params.id;
   const tokenAddress = id as `0x${string}`;
-  
   const publicClient = usePublicClient(); 
 
   const [activeTab, setActiveTab] = useState<"buy" | "sell">("buy");
@@ -37,7 +41,7 @@ export default function TradePage(props: PageProps) {
   const [amount, setAmount] = useState("");
   const [isMounted, setIsMounted] = useState(false);
   
-  // DATA STATES
+  // Data States
   const [chartData, setChartData] = useState<any[]>([]);
   const [tradeHistory, setTradeHistory] = useState<any[]>([]);
   const [holders, setHolders] = useState<number>(1);
@@ -61,7 +65,6 @@ export default function TradePage(props: PageProps) {
   const { data: symbol } = useReadContract({ address: tokenAddress, abi: [{ name: "symbol", type: "function", inputs: [], outputs: [{ type: "string" }], stateMutability: "view" }], functionName: "symbol" });
   const { data: metadata } = useReadContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "tokenMetadata", args: [tokenAddress] });
 
-  // Güvenli Veri Erişimi (Undefined hatalarını önler)
   const collateral = salesData ? formatEther(salesData[1] as bigint) : "0";
   const tokensSold = salesData ? (salesData[3] as bigint) : 0n;
   const progress = Number((tokensSold * 100n) / 1000000000000000000000000000n);
@@ -74,7 +77,7 @@ export default function TradePage(props: PageProps) {
   const telegram = metadata ? metadata[2] : "";
   const web = metadata ? metadata[3] : "";
 
-  // 4. HISTORY FETCHING
+  // 4. GEÇMİŞ İŞLEMLERİ ÇEKME
   const fetchHistory = async () => {
     if (!publicClient) return;
     try {
@@ -130,8 +133,10 @@ export default function TradePage(props: PageProps) {
 
   useEffect(() => {
     fetchHistory();
+    const interval = setInterval(fetchHistory, 5000);
     const storedComments = localStorage.getItem(`comments_${tokenAddress}`);
     if(storedComments) setComments(JSON.parse(storedComments));
+    return () => clearInterval(interval);
   }, [tokenAddress, publicClient]);
 
   // CANLI DİNLEME
@@ -153,7 +158,7 @@ export default function TradePage(props: PageProps) {
         user: type === "BUY" ? log.args.buyer : log.args.seller, 
         type: type, 
         maticAmount: maticVal.toFixed(4), 
-        tokenAmount: tokenVal, // Ham veri (render için formatlanacak)
+        tokenAmount: tokenVal, 
         price: executionPrice.toFixed(8), 
         time: "Just now" 
     }, ...prev]);
@@ -185,9 +190,8 @@ export default function TradePage(props: PageProps) {
     if (isConfirmed) { 
         toast.dismiss('tx'); 
         toast.success("Success!"); 
-        setAmount(""); 
         
-        // Optimistic UI: Verileri hemen güncellemiş gibi davran
+        // Optimistic UI Update (Anında Ekrana Bas)
         const val = parseFloat(amount);
         const estPrice = currentPrice > 0 ? currentPrice : 0.000001;
         const estTokens = activeTab === "buy" ? val / estPrice : val;
@@ -197,16 +201,18 @@ export default function TradePage(props: PageProps) {
             user: address || "You",
             type: activeTab === "buy" ? "BUY" : "SELL",
             maticAmount: estMatic.toFixed(4),
-            tokenAmount: BigInt(Math.floor(estTokens * 10**18)), // BigInt simülasyonu
+            tokenAmount: estTokens,
             price: estPrice.toFixed(8),
             time: "Just now"
         };
         setTradeHistory(prev => [newTrade, ...prev]);
         setChartData(prev => [...prev, { name: "New", price: estPrice, isUp: activeTab === "buy", fill: activeTab === "buy" ? '#10b981' : '#ef4444' }]);
 
+        setAmount(""); 
         refetchSales();
         refetchTokenBalance();
         refetchMatic();
+        setTimeout(fetchHistory, 2000); 
     } 
   }, [isConfirmed]);
 
@@ -216,16 +222,6 @@ export default function TradePage(props: PageProps) {
     setComments([newC, ...comments]);
     localStorage.setItem(`comments_${tokenAddress}`, JSON.stringify([newC, ...comments]));
     setCommentInput("");
-  };
-
-  // Helper for formatting big token numbers
-  const formatTokenAmount = (val: any) => {
-      // Eğer val bir BigInt ise (canlı veri)
-      const num = typeof val === 'bigint' ? parseFloat(formatEther(val)) : parseFloat(val);
-      if (isNaN(num)) return "0";
-      if (num >= 1000000) return (num / 1000000).toFixed(2) + "M";
-      if (num >= 1000) return (num / 1000).toFixed(2) + "k";
-      return num.toFixed(2);
   };
 
   useEffect(() => { setIsMounted(true); }, []);
@@ -371,7 +367,7 @@ export default function TradePage(props: PageProps) {
                     <span>Amount</span>
                     <span>Bal: {activeTab === "buy" 
                         ? `${maticBalance?.formatted ? parseFloat(maticBalance.formatted).toFixed(4) : "0.00"} MATIC` 
-                        : `${userTokenBalance ? parseFloat(formatEther(userTokenBalance as bigint)).toFixed(2) : "0.00"} ${symbol || "TKN"}`
+                        : `${userTokenBalance ? parseFloat(formatEther(userTokenBalance as bigint)).toFixed(2) : "0.00"} ${symbol}`
                     }</span>
                   </div>
                   <input type="number" placeholder="0.0" value={amount} onChange={(e) => setAmount(e.target.value)} style={{ width: '100%', fontSize: '36px', fontWeight: '900', backgroundColor: 'transparent', color: '#fff', outline: 'none', border: 'none', fontFamily: 'inherit' }} />
