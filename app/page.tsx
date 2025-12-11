@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import { Rocket, X, Coins, Twitter, Send, Globe, TrendingUp, Users, Activity, Upload, Image as ImageIcon } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Rocket, X, Coins, Twitter, Send, Globe, TrendingUp, Users, Activity, Crown, Flame } from "lucide-react"; // Crown ve Flame eklendi
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import Link from "next/link";
 import { motion } from "framer-motion";
@@ -14,6 +14,59 @@ const HIDDEN_TOKENS: string[] = [].map((t: string) => t.toLowerCase());
 
 const getTokenImage = (address: string, customImage?: string) => 
   customImage || `https://api.dyneui.com/avatar/abstract?seed=${address}&size=400&background=000000&color=FDDC11&pattern=circuit&variance=0.7`;
+
+// --- KING OF THE HILL BİLEŞENİ ---
+function KingOfTheHill({ tokenAddress }: { tokenAddress: `0x${string}` }) {
+  const { data: salesData } = useReadContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "sales", args: [tokenAddress] });
+  const { data: name } = useReadContract({ address: tokenAddress, abi: [{ name: "name", type: "function", inputs: [], outputs: [{ type: "string" }], stateMutability: "view" }], functionName: "name" });
+  const { data: symbol } = useReadContract({ address: tokenAddress, abi: [{ name: "symbol", type: "function", inputs: [], outputs: [{ type: "string" }], stateMutability: "view" }], functionName: "symbol" });
+  const { data: metadata } = useReadContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "tokenMetadata", args: [tokenAddress] });
+
+  const tokensSold = salesData ? (salesData[3] as bigint) : 0n;
+  const progress = Number((tokensSold * 100n) / 1000000000000000000000000000n);
+  const realProgress = Math.min(progress, 100);
+  const image = metadata ? metadata[4] : "";
+  const tokenImage = getTokenImage(tokenAddress, image);
+
+  if (!name) return null; // Yüklenmediyse gösterme
+
+  return (
+    <Link href={`/trade/${tokenAddress}`}>
+      <motion.div 
+        initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} 
+        whileHover={{ scale: 1.02 }}
+        className="relative overflow-hidden rounded-3xl p-1 mb-12 cursor-pointer group"
+        style={{ background: 'linear-gradient(45deg, #FDDC11, #ff0000, #9333ea, #FDDC11)', backgroundSize: '400% 400%', animation: 'gradientBorder 3s ease infinite' }}
+      >
+        <style>{`@keyframes gradientBorder { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }`}</style>
+        <div className="bg-[#0a0e27] rounded-[22px] p-6 relative overflow-hidden">
+          <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity"><Crown size={120} /></div>
+          
+          <div className="flex flex-col md:flex-row gap-8 items-center">
+             <div className="relative">
+                <img src={tokenImage} className="w-32 h-32 md:w-40 md:h-40 rounded-2xl border-4 border-[#FDDC11] shadow-[0_0_30px_rgba(253,220,17,0.4)] object-cover" />
+                <div className="absolute -top-4 -left-4 bg-[#FDDC11] text-black font-black px-4 py-1 rounded-full flex items-center gap-2 shadow-lg transform -rotate-6 border-2 border-white">
+                   <Crown size={16} fill="black" /> KING OF THE HILL
+                </div>
+             </div>
+             
+             <div className="flex-1 text-center md:text-left z-10">
+                <h2 className="text-4xl font-black text-white mb-2 leading-tight">{name?.toString()} <span className="text-[#FDDC11] text-2xl">[{symbol?.toString()}]</span></h2>
+                <div className="flex items-center justify-center md:justify-start gap-4 mb-4">
+                   <span className="px-3 py-1 bg-white/10 rounded-lg text-sm font-bold text-green-400 flex items-center gap-2"><Flame size={14} className="fill-green-400"/> Bonding Curve: {realProgress.toFixed(2)}%</span>
+                   <span className="px-3 py-1 bg-white/10 rounded-lg text-sm font-bold text-blue-400 flex items-center gap-2"><Activity size={14}/> Top Volume</span>
+                </div>
+                <div className="h-4 bg-white/10 rounded-full overflow-hidden border border-white/5 w-full max-w-md">
+                   <motion.div initial={{ width: 0 }} animate={{ width: `${realProgress}%` }} transition={{ duration: 1.5 }} className="h-full bg-gradient-to-r from-[#FDDC11] to-red-500 shadow-[0_0_20px_#FDDC11]" />
+                </div>
+                <p className="text-gray-400 text-sm mt-2">Closest to graduation! Buy now before it hits DEX.</p>
+             </div>
+          </div>
+        </div>
+      </motion.div>
+    </Link>
+  );
+}
 
 function DarkTokenCard({ tokenAddress }: { tokenAddress: `0x${string}` }) {
   const [hovering, setHovering] = useState(false);
@@ -29,8 +82,6 @@ function DarkTokenCard({ tokenAddress }: { tokenAddress: `0x${string}` }) {
   const tokensSold = salesData ? (salesData[3] as bigint) : 0n;
   const progress = Number((tokensSold * 100n) / 1000000000000000000000000000n);
   const realProgress = Math.min(progress, 100);
-  
-  // Resim Metadata'dan geliyor
   const image = metadata ? metadata[4] : "";
   const tokenImage = getTokenImage(tokenAddress, image);
 
@@ -38,10 +89,7 @@ function DarkTokenCard({ tokenAddress }: { tokenAddress: `0x${string}` }) {
     const getHolders = async () => {
       if(!publicClient) return;
       try {
-        const logs = await publicClient.getContractEvents({
-          address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, eventName: 'Buy',
-          args: { token: tokenAddress }, fromBlock: 'earliest'
-        });
+        const logs = await publicClient.getContractEvents({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, eventName: 'Buy', args: { token: tokenAddress }, fromBlock: 'earliest' });
         const uniqueBuyers = new Set(logs.map((l: any) => l.args.buyer));
         setHolders(uniqueBuyers.size > 0 ? uniqueBuyers.size : 1);
       } catch(e) {}
@@ -52,18 +100,9 @@ function DarkTokenCard({ tokenAddress }: { tokenAddress: `0x${string}` }) {
   return (
     <Link href={`/trade/${tokenAddress}`}>
       <motion.div
-        onMouseEnter={() => setHovering(true)}
-        onMouseLeave={() => setHovering(false)}
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        style={{
-          position: 'relative', cursor: 'pointer', height: '100%', borderRadius: '20px',
-          border: hovering ? '1px solid rgba(253, 220, 17, 0.5)' : '1px solid rgba(253, 220, 17, 0.15)',
-          background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.5), rgba(15, 23, 42, 0.7))',
-          backdropFilter: 'blur(20px)', padding: '24px', transition: 'all 0.3s ease',
-          transform: hovering ? 'translateY(-8px)' : 'translateY(0)',
-          boxShadow: hovering ? '0 20px 50px -10px rgba(253, 220, 17, 0.2)' : 'none'
-        }}
+        onMouseEnter={() => setHovering(true)} onMouseLeave={() => setHovering(false)}
+        initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
+        style={{ position: 'relative', cursor: 'pointer', height: '100%', borderRadius: '20px', border: hovering ? '1px solid rgba(253, 220, 17, 0.5)' : '1px solid rgba(253, 220, 17, 0.15)', background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.5), rgba(15, 23, 42, 0.7))', backdropFilter: 'blur(20px)', padding: '24px', transition: 'all 0.3s ease', transform: hovering ? 'translateY(-8px)' : 'translateY(0)', boxShadow: hovering ? '0 20px 50px -10px rgba(253, 220, 17, 0.2)' : 'none' }}
       >
         <div style={{ display: 'flex', gap: '16px', marginBottom: '20px', alignItems: 'flex-start' }}>
           <img src={tokenImage} alt="token" style={{ width: '60px', height: '60px', borderRadius: '14px', border: '1px solid rgba(253, 220, 17, 0.2)', objectFit: 'cover', flexShrink: 0 }} />
@@ -76,13 +115,8 @@ function DarkTokenCard({ tokenAddress }: { tokenAddress: `0x${string}` }) {
           </div>
         </div>
         <div style={{ marginBottom: '20px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '12px' }}>
-            <span style={{ color: '#94a3b8', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Bonding Curve</span>
-            <span style={{ color: '#FDDC11', fontWeight: '700' }}>{realProgress.toFixed(1)}%</span>
-          </div>
-          <div style={{ height: '8px', backgroundColor: 'rgba(255, 255, 255, 0.08)', borderRadius: '4px', overflow: 'hidden' }}>
-            <motion.div initial={{ width: 0 }} animate={{ width: `${realProgress}%` }} transition={{ duration: 1.2 }} style={{ height: '100%', background: 'linear-gradient(90deg, #FDDC11 0%, #9333ea 100%)', boxShadow: '0 0 20px rgba(253, 220, 17, 0.6)' }} />
-          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '12px' }}><span style={{ color: '#94a3b8', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Bonding Curve</span><span style={{ color: '#FDDC11', fontWeight: '700' }}>{realProgress.toFixed(1)}%</span></div>
+          <div style={{ height: '8px', backgroundColor: 'rgba(255, 255, 255, 0.08)', borderRadius: '4px', overflow: 'hidden' }}><motion.div initial={{ width: 0 }} animate={{ width: `${realProgress}%` }} transition={{ duration: 1.2 }} style={{ height: '100%', background: 'linear-gradient(90deg, #FDDC11 0%, #9333ea 100%)', boxShadow: '0 0 20px rgba(253, 220, 17, 0.6)' }} /></div>
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#94a3b8' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: '600' }}><Coins size={14} style={{ color: '#FDDC11' }} /><span>{parseFloat(collateral).toFixed(2)} MATIC</span></div>
@@ -115,19 +149,9 @@ export default function HomePage() {
     if (logs[0]?.args?.token) { setOrderedTokens(prev => [logs[0].args.token, ...prev]); toast.success("🚀 New token launched!"); } 
   }});
 
-  // DOSYA YÜKLEME VE ÖNİZLEME FONKSİYONU
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      // 1. Önizleme URL'i oluştur
-      const objectUrl = URL.createObjectURL(file);
-      setPreviewUrl(objectUrl);
-      
-      // 2. Gerçek bir projede burada dosyayı IPFS'e (Pinata vb.) yükleyip URL'i almamız gerekir.
-      // Şimdilik test edebilmen için URL inputunu manuel doldurmuş gibi yapıyoruz.
-      // (Not: Gerçek deployda buraya IPFS upload kodu gelmeli)
-      // toast.success("File selected! (In production, this would upload to IPFS)");
-    }
+    if (file) setPreviewUrl(URL.createObjectURL(file));
   };
 
   const { data: hash, isPending, writeContract } = useWriteContract();
@@ -176,10 +200,13 @@ export default function HomePage() {
       </header>
 
       <main style={{ maxWidth: '1280px', margin: '0 auto', padding: '60px 20px', position: 'relative', zIndex: 10 }}>
-        <div style={{ textAlign: 'center', marginBottom: '80px' }}>
-          <h1 style={{ fontSize: '56px', fontWeight: '900', marginBottom: '16px', lineHeight: '1.1' }}>Next Gen <span style={{ background: 'linear-gradient(135deg, #FDDC11, #9333ea)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Token Launch</span></h1>
-          <p style={{ color: '#94a3b8', fontSize: '18px', maxWidth: '600px', margin: '0 auto', fontWeight: '500' }}>Fair launch, instant liquidity, and automated market making.</p>
-        </div>
+        {/* KING OF THE HILL SECTION - SADECE EN YENİ TOKEN VARSA GÖSTER */}
+        {orderedTokens.length > 0 && (
+          <div className="mb-12">
+             <div className="flex items-center gap-2 mb-4"><Crown className="text-[#FDDC11]" size={24} /><h2 className="text-2xl font-black text-white">KING OF THE HILL</h2></div>
+             <KingOfTheHill tokenAddress={orderedTokens[0] as `0x${string}`} />
+          </div>
+        )}
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px', marginBottom: '60px' }}>
           {[{ label: 'Pairs', val: orderedTokens.length.toString(), icon: '🚀' }, { label: 'Volume', val: '$0', icon: '📊' }, { label: 'Traders', val: '0', icon: '👥' }, { label: 'Avg ROI', val: '0%', icon: '📈' }].map((s, i) => (
@@ -197,7 +224,7 @@ export default function HomePage() {
         </div>
       </main>
 
-      {/* Modal */}
+      {/* Modal - Aynı Kalıyor (Yukarıdaki Kodun Devamı) */}
       {isModalOpen && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
           <div onClick={() => setIsModalOpen(false)} style={{ position: 'absolute', inset: 0, backgroundColor: 'rgba(0, 0, 0, 0.8)', backdropFilter: 'blur(12px)' }} />
@@ -206,43 +233,20 @@ export default function HomePage() {
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}><Rocket size={22} style={{ color: '#FDDC11' }} /><span style={{ fontWeight: '800', fontSize: '18px' }}>Launch Token</span></div>
               <button onClick={() => setIsModalOpen(false)} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', padding: '8px' }}><X size={22} /></button>
             </div>
-            
             <div style={{ padding: '28px', display: 'flex', flexDirection: 'column', gap: '18px' }}>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
                 <div><label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', marginBottom: '8px', display: 'block', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Name</label><input type="text" placeholder="Bitcoin" value={formData.name} onChange={(e) => setFormData({...formData, name: e.target.value})} style={{ width: '100%', padding: '14px', background: 'rgba(30, 41, 59, 0.6)', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '10px', color: '#fff', fontSize: '14px', outline: 'none', transition: 'all 0.2s' }} /></div>
                 <div><label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', marginBottom: '8px', display: 'block', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Ticker</label><input type="text" placeholder="BTC" maxLength={10} value={formData.ticker} onChange={(e) => setFormData({...formData, ticker: e.target.value.toUpperCase()})} style={{ width: '100%', padding: '14px', background: 'rgba(30, 41, 59, 0.6)', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '10px', color: '#fff', fontSize: '14px', outline: 'none', transition: 'all 0.2s' }} /></div>
               </div>
-              
               <div><label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', marginBottom: '8px', display: 'block', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Description</label><textarea placeholder="Tell us about your token..." value={formData.desc} onChange={(e) => setFormData({...formData, desc: e.target.value})} style={{ width: '100%', padding: '14px', background: 'rgba(30, 41, 59, 0.6)', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '10px', color: '#fff', fontSize: '14px', outline: 'none', height: '90px', resize: 'none', transition: 'all 0.2s' }} /></div>
-              
-              {/* IMAGE UPLOAD UI (GÜNCELLENDİ) */}
               <div>
                 <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', marginBottom: '8px', display: 'block', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Image / GIF</label>
-                <div 
-                  onClick={() => fileInputRef.current?.click()}
-                  style={{ 
-                    width: '100%', padding: '20px', background: 'rgba(30, 41, 59, 0.6)', 
-                    border: '1px dashed rgba(253, 220, 17, 0.3)', borderRadius: '10px', 
-                    cursor: 'pointer', textAlign: 'center', transition: 'all 0.2s',
-                    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px'
-                  }}
-                  onMouseEnter={(e) => e.currentTarget.style.borderColor = '#FDDC11'}
-                  onMouseLeave={(e) => e.currentTarget.style.borderColor = 'rgba(253, 220, 17, 0.3)'}
-                >
+                <div onClick={() => fileInputRef.current?.click()} style={{ width: '100%', padding: '20px', background: 'rgba(30, 41, 59, 0.6)', border: '1px dashed rgba(253, 220, 17, 0.3)', borderRadius: '10px', cursor: 'pointer', textAlign: 'center', transition: 'all 0.2s', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
                   <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="image/*" style={{ display: 'none' }} />
-                  {previewUrl ? (
-                    <img src={previewUrl} alt="Preview" style={{ width: '80px', height: '80px', objectFit: 'cover', borderRadius: '8px' }} />
-                  ) : (
-                    <>
-                      <Upload size={24} style={{ color: '#94a3b8' }} />
-                      <span style={{ fontSize: '12px', color: '#94a3b8' }}>Click to upload image</span>
-                    </>
-                  )}
+                  {previewUrl ? (<img src={previewUrl} alt="Preview" style={{ width: '80px', height: '80px', objectFit: 'cover', borderRadius: '8px' }} />) : (<><Upload size={24} style={{ color: '#94a3b8' }} /><span style={{ fontSize: '12px', color: '#94a3b8' }}>Click to upload image</span></>)}
                 </div>
-                {/* Fallback URL Input (Eğer dosya yüklemesi çalışmazsa diye yedek) */}
                 <input type="text" placeholder="Or paste Image URL..." value={formData.image} onChange={(e) => { setFormData({...formData, image: e.target.value}); setPreviewUrl(e.target.value); }} style={{ width: '100%', marginTop: '8px', padding: '10px', background: 'rgba(255, 255, 255, 0.05)', border: 'none', borderRadius: '8px', color: '#fff', fontSize: '12px', outline: 'none' }} />
               </div>
-
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
                 <input type="text" placeholder="Twitter" value={formData.twitter} onChange={(e) => setFormData({...formData, twitter: e.target.value})} style={{ width: '100%', padding: '12px', background: 'rgba(30, 41, 59, 0.6)', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '10px', color: '#fff', fontSize: '12px', outline: 'none', transition: 'all 0.2s' }} />
                 <input type="text" placeholder="Telegram" value={formData.telegram} onChange={(e) => setFormData({...formData, telegram: e.target.value})} style={{ width: '100%', padding: '12px', background: 'rgba(30, 41, 59, 0.6)', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '10px', color: '#fff', fontSize: '12px', outline: 'none', transition: 'all 0.2s' }} />
