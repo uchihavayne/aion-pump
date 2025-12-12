@@ -17,16 +17,8 @@ import toast, { Toaster } from 'react-hot-toast';
 import { motion, AnimatePresence } from "framer-motion";
 import Confetti from 'react-confetti';
 
-// --- SES EFEKTLERİ ---
-const playSound = (type: 'buy' | 'sell' | 'tip') => {
-  try {
-    const audio = new Audio(type === 'buy' ? '/buy.mp3' : type === 'sell' ? '/sell.mp3' : '/tip.mp3');
-    audio.volume = 0.5;
-    audio.play().catch(() => {});
-  } catch (e) {}
-};
+// --- YARDIMCI FONKSİYONLAR ---
 
-// --- HELPER COMPONENTS ---
 const getTokenImage = (address: string, customImage?: string) => 
   customImage || `https://api.dyneui.com/avatar/abstract?seed=${address}&size=400&background=000000&color=FDDC11&pattern=circuit&variance=0.7`;
 
@@ -36,57 +28,21 @@ const formatTokenAmount = (num: number) => {
   return num.toFixed(2);
 };
 
-// MEME GENERATOR COMPONENT
-const MemeGenerator = ({ tokenImage, symbol }: { tokenImage: string, symbol: string }) => {
-    const [topText, setTopText] = useState("");
-    const [bottomText, setBottomText] = useState("");
-    const canvasRef = useRef<HTMLCanvasElement>(null);
-
-    useEffect(() => {
-        const canvas = canvasRef.current;
-        if(!canvas) return;
-        const ctx = canvas.getContext("2d");
-        const img = new Image();
-        img.crossOrigin = "anonymous";
-        img.src = tokenImage;
-        img.onload = () => {
-            if(!ctx) return;
-            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-            ctx.font = "bold 40px Impact";
-            ctx.fillStyle = "white";
-            ctx.strokeStyle = "black";
-            ctx.lineWidth = 2;
-            ctx.textAlign = "center";
-            
-            ctx.fillText(topText.toUpperCase(), canvas.width/2, 50);
-            ctx.strokeText(topText.toUpperCase(), canvas.width/2, 50);
-            
-            ctx.fillText(bottomText.toUpperCase(), canvas.width/2, canvas.height - 20);
-            ctx.strokeText(bottomText.toUpperCase(), canvas.width/2, canvas.height - 20);
-        };
-    }, [topText, bottomText, tokenImage]);
-
-    const downloadMeme = () => {
-        const link = document.createElement('a');
-        link.download = `${symbol}-meme.png`;
-        link.href = canvasRef.current?.toDataURL() || "";
-        link.click();
-        toast.success("Meme Downloaded! 🎨");
-    };
-
-    return (
-        <div className="flex flex-col gap-4 p-4 bg-black/20 rounded-xl">
-            <canvas ref={canvasRef} width={400} height={400} className="w-full rounded-lg border border-white/10" />
-            <div className="flex gap-2">
-                <input type="text" placeholder="Top Text" className="flex-1 bg-white/5 border border-white/10 rounded px-2 py-1 text-sm outline-none" value={topText} onChange={e=>setTopText(e.target.value)} />
-                <input type="text" placeholder="Bottom Text" className="flex-1 bg-white/5 border border-white/10 rounded px-2 py-1 text-sm outline-none" value={bottomText} onChange={e=>setBottomText(e.target.value)} />
-            </div>
-            <button onClick={downloadMeme} className="w-full bg-[#FDDC11] text-black font-bold py-2 rounded-lg flex items-center justify-center gap-2 hover:bg-[#ffe55c] transition-colors"><Download size={16}/> Download Meme</button>
-        </div>
-    );
+const playSound = (type: 'buy' | 'sell' | 'tip') => {
+  try {
+    const audio = new Audio(type === 'buy' ? '/buy.mp3' : type === 'sell' ? '/sell.mp3' : '/tip.mp3');
+    audio.volume = 0.5;
+    audio.play().catch(() => {});
+  } catch (e) {}
 };
 
-// CHAT COMPONENT (Local Storage)
+const CustomCandle = (props: any) => {
+  const { x, y, width, height, fill } = props;
+  return <rect x={x} y={y} width={width} height={Math.max(height, 2)} fill={fill} rx={2} />;
+};
+
+// --- ALT BİLEŞENLER (CHAT & MEME) ---
+
 const ChatBox = ({ tokenAddress }: { tokenAddress: string }) => {
     const [msgs, setMsgs] = useState<any[]>([]);
     const [input, setInput] = useState("");
@@ -127,7 +83,55 @@ const ChatBox = ({ tokenAddress }: { tokenAddress: string }) => {
     );
 };
 
-// MAIN PAGE COMPONENT
+const MemeGenerator = ({ tokenImage, symbol }: { tokenImage: string, symbol: string }) => {
+    const [topText, setTopText] = useState("");
+    const [bottomText, setBottomText] = useState("");
+    const canvasRef = useRef<HTMLCanvasElement>(null);
+
+    useEffect(() => {
+        const canvas = canvasRef.current;
+        if(!canvas) return;
+        const ctx = canvas.getContext("2d");
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        img.src = tokenImage;
+        img.onload = () => {
+            if(!ctx) return;
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            ctx.font = "bold 40px Impact";
+            ctx.fillStyle = "white";
+            ctx.strokeStyle = "black";
+            ctx.lineWidth = 2;
+            ctx.textAlign = "center";
+            ctx.fillText(topText.toUpperCase(), canvas.width/2, 50);
+            ctx.strokeText(topText.toUpperCase(), canvas.width/2, 50);
+            ctx.fillText(bottomText.toUpperCase(), canvas.width/2, canvas.height - 20);
+            ctx.strokeText(bottomText.toUpperCase(), canvas.width/2, canvas.height - 20);
+        };
+    }, [topText, bottomText, tokenImage]);
+
+    const downloadMeme = () => {
+        const link = document.createElement('a');
+        link.download = `${symbol}-meme.png`;
+        link.href = canvasRef.current?.toDataURL() || "";
+        link.click();
+        toast.success("Meme Downloaded! 🎨");
+    };
+
+    return (
+        <div className="flex flex-col gap-4 p-4 bg-black/20 rounded-xl">
+            <canvas ref={canvasRef} width={400} height={400} className="w-full rounded-lg border border-white/10" />
+            <div className="flex gap-2">
+                <input type="text" placeholder="Top Text" className="flex-1 bg-white/5 border border-white/10 rounded px-2 py-1 text-sm outline-none" value={topText} onChange={e=>setTopText(e.target.value)} />
+                <input type="text" placeholder="Bottom Text" className="flex-1 bg-white/5 border border-white/10 rounded px-2 py-1 text-sm outline-none" value={bottomText} onChange={e=>setBottomText(e.target.value)} />
+            </div>
+            <button onClick={downloadMeme} className="w-full bg-[#FDDC11] text-black font-bold py-2 rounded-lg flex items-center justify-center gap-2 hover:bg-[#ffe55c] transition-colors"><Download size={16}/> Download Meme</button>
+        </div>
+    );
+};
+
+// --- MAIN PAGE ---
+
 type PageProps = { params: Promise<{ id: string }>; };
 
 export default function TradePage(props: PageProps) {
@@ -139,27 +143,22 @@ export default function TradePage(props: PageProps) {
 
   // STATES
   const [activeTab, setActiveTab] = useState<"buy" | "sell">("buy");
-  const [bottomTab, setBottomTab] = useState<"trades" | "holders" | "chat" | "meme">("trades");
+  const [bottomTab, setBottomTab] = useState<"trades" | "chat" | "holders" | "meme">("trades");
   const [amount, setAmount] = useState("");
   const [slippage, setSlippage] = useState(1);
   const [showConfetti, setShowConfetti] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   
-  // PRO SETTINGS STATES
-  const [sniperMode, setSniperMode] = useState(false);
-  const [mevProtect, setMevProtect] = useState(false);
-  const [priceAlert, setPriceAlert] = useState("");
-
-  // DATA STATES
+  // Data States
   const [chartData, setChartData] = useState<any[]>([]);
   const [tradeHistory, setTradeHistory] = useState<any[]>([]);
   const [holderList, setHolderList] = useState<any[]>([]);
   const [pieData, setPieData] = useState<any[]>([]);
   const processedTxHashes = useRef(new Set());
 
-  // CONTRACT READS
+  // Contract Reads
   const { data: maticBalance, refetch: refetchMatic } = useBalance({ address: address });
-  const { data: userTokenBalance, refetch: refetchTokenBalance } = useReadContract({ address: tokenAddress, abi: erc20Abi, functionName: "balanceOf", args: [address as `0x${string}`] });
+  const { data: userTokenBalance, refetch: refetchTokenBalance } = useReadContract({ address: tokenAddress, abi: erc20Abi, functionName: "balanceOf", args: [address as `0x${string}`], query: { enabled: !!address } });
   const { data: salesData, refetch: refetchSales } = useReadContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "sales", args: [tokenAddress] });
   const { data: name } = useReadContract({ address: tokenAddress, abi: [{ name: "name", type: "function", inputs: [], outputs: [{ type: "string" }], stateMutability: "view" }], functionName: "name" });
   const { data: symbol } = useReadContract({ address: tokenAddress, abi: [{ name: "symbol", type: "function", inputs: [], outputs: [{ type: "string" }], stateMutability: "view" }], functionName: "symbol" });
@@ -174,21 +173,25 @@ export default function TradePage(props: PageProps) {
   const currentPrice = chartData.length > 0 ? chartData[chartData.length - 1].price : 0.000001;
   const marketCap = currentPrice * 1_000_000_000;
 
+  const desc = metadata ? metadata[0] : "";
+  const twitter = metadata ? metadata[1] : "";
+  const telegram = metadata ? metadata[2] : "";
+  const web = metadata ? metadata[3] : "";
   const image = metadata ? metadata[4] : "";
   const tokenImage = getTokenImage(tokenAddress, image);
 
-  // TIPPING FUNCTION
+  // Tip
   const { sendTransaction } = useSendTransaction();
   const handleTip = async () => {
       if(!creatorAddress) return;
       try {
           await sendTransaction({ to: creatorAddress, value: parseEther("1") });
-          toast.success("Tip sent to Creator! 💸");
+          toast.success("Tip sent! 💸");
           playSound('tip');
       } catch(e) { toast.error("Tip failed"); }
   };
 
-  // HISTORY FETCHING
+  // Fetch History & Holders (Robust)
   const fetchHistory = async () => {
     if (!publicClient) return;
     try {
@@ -199,11 +202,9 @@ export default function TradePage(props: PageProps) {
 
       const relevantBuys = buyLogs.filter((l: any) => l.args.token.toLowerCase() === tokenAddress.toLowerCase());
       const relevantSells = sellLogs.filter((l: any) => l.args.token.toLowerCase() === tokenAddress.toLowerCase());
+      const allEvents = [...relevantBuys.map(l => ({ ...l, type: "BUY" })), ...relevantSells.map(l => ({ ...l, type: "SELL" }))].sort((a, b) => Number(a.blockNumber) - Number(b.blockNumber) || a.logIndex - b.logIndex);
 
-      const allEvents = [...relevantBuys.map(l => ({ ...l, type: "BUY" })), ...relevantSells.map(l => ({ ...l, type: "SELL" }))]
-        .sort((a, b) => Number(a.blockNumber) - Number(b.blockNumber) || a.logIndex - b.logIndex);
-
-      // Holders Calculation
+      // Holders
       const balances: Record<string, bigint> = {};
       relevantBuys.forEach((l:any) => { balances[l.args.buyer] = (balances[l.args.buyer] || 0n) + (l.args.amountTokens || 0n); });
       relevantSells.forEach((l:any) => { balances[l.args.seller] = (balances[l.args.seller] || 0n) - (l.args.amountTokens || 0n); });
@@ -214,14 +215,14 @@ export default function TradePage(props: PageProps) {
         .map(([addr, bal]) => ({ address: addr, balance: bal, percentage: (Number(bal) * 100) / 1_000_000_000 / 10**18 }));
       setHolderList(sortedHolders);
 
-      // Pie Chart
+      // Pie Data
       const top5 = sortedHolders.slice(0, 5);
       const others = sortedHolders.slice(5).reduce((acc, curr) => acc + curr.percentage, 0);
       const pData = top5.map((h, i) => ({ name: `${h.address.slice(0,4)}`, value: h.percentage, fill: ['#FDDC11', '#fbbf24', '#f59e0b', '#d97706', '#b45309'][i] }));
       if (others > 0) pData.push({ name: 'Others', value: others, fill: '#374151' });
       setPieData(pData);
 
-      // Chart & Trades
+      // Chart & Trade List
       const newChartData: any[] = [];
       const newTrades: any[] = [];
       let lastPrice = 0.0000001;
@@ -258,7 +259,7 @@ export default function TradePage(props: PageProps) {
     return () => clearInterval(interval);
   }, [tokenAddress, publicClient]);
 
-  // LIVE EVENTS
+  // LIVE LISTENERS
   useWatchContractEvent({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, eventName: 'Buy', onLogs(logs: any) { processLiveLog(logs[0], "BUY"); } });
   useWatchContractEvent({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, eventName: 'Sell', onLogs(logs: any) { processLiveLog(logs[0], "SELL"); } });
 
@@ -278,7 +279,6 @@ export default function TradePage(props: PageProps) {
     refetchSales(); refetchTokenBalance(); refetchMatic();
   };
 
-  // TX HANDLING
   const { data: hash, isPending, writeContract } = useWriteContract();
   const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({ hash });
 
@@ -295,16 +295,8 @@ export default function TradePage(props: PageProps) {
   useEffect(() => { 
     if (isConfirmed) { 
         toast.dismiss('tx'); toast.success("Success!"); 
-        const val = parseFloat(amount);
-        const estPrice = currentPrice > 0 ? currentPrice : 0.000001;
-        const estTokens = activeTab === "buy" ? val / estPrice : val;
-        const estMatic = activeTab === "buy" ? val : val * estPrice;
-        const newTrade = { user: address || "You", type: activeTab === "buy" ? "BUY" : "SELL", maticAmount: estMatic.toFixed(4), tokenAmount: BigInt(Math.floor(estTokens * 10**18)), price: estPrice.toFixed(8), time: "Just now" };
-        
-        setTradeHistory(prev => [newTrade, ...prev]);
-        setChartData(prev => [...prev, { name: "New", price: estPrice, isUp: activeTab === "buy", fill: activeTab === "buy" ? '#10b981' : '#ef4444' }]);
-        if(activeTab === "buy") { setShowConfetti(true); setTimeout(() => setShowConfetti(false), 5000); playSound('buy'); } else { playSound('sell'); }
-        
+        if(activeTab === "buy") { setShowConfetti(true); setTimeout(() => setShowConfetti(false), 5000); playSound('buy'); }
+        else { playSound('sell'); }
         setAmount(""); refetchSales(); refetchTokenBalance(); refetchMatic(); setTimeout(fetchHistory, 2000);
     } 
   }, [isConfirmed]);
@@ -335,7 +327,7 @@ export default function TradePage(props: PageProps) {
 
       <main className="max-w-[1400px] mx-auto px-4 py-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
         
-        {/* SOL KOLON */}
+        {/* SOL KOLON: INFO & CHART */}
         <div className="lg:col-span-8 flex flex-col gap-6">
             <div className="flex items-start gap-4">
                 <div className="w-16 h-16 bg-[#2d1b4e] rounded-xl border border-white/10 overflow-hidden shadow-lg"><img src={getTokenImage(tokenAddress, image)} className="w-full h-full object-cover"/></div>
@@ -370,6 +362,7 @@ export default function TradePage(props: PageProps) {
                     ))}
                 </div>
                 <div className="bg-[#2d1b4e]/50 border border-white/5 rounded-2xl p-4 min-h-[300px]">
+                    {/* TRADES TAB */}
                     {bottomTab === "trades" && (
                         <div className="flex flex-col gap-1">
                             <div className="grid grid-cols-5 text-[10px] font-bold text-gray-500 uppercase px-3 pb-2"><div>User</div><div>Type</div><div>MATIC</div><div>Tokens</div><div className="text-right">Price</div></div>
@@ -384,6 +377,7 @@ export default function TradePage(props: PageProps) {
                             ))}
                         </div>
                     )}
+                    {/* HOLDERS TAB */}
                     {bottomTab === "holders" && (
                         <div className="flex gap-6">
                             <div className="w-1/3 h-[200px]"><ResponsiveContainer><PieChart><Pie data={pieData} cx="50%" cy="50%" innerRadius={40} outerRadius={60} dataKey="value">{pieData.map((e,i)=><Cell key={i} fill={e.fill}/>)}</Pie></PieChart></ResponsiveContainer></div>
@@ -396,22 +390,9 @@ export default function TradePage(props: PageProps) {
             </div>
         </div>
 
-        {/* SAĞ KOLON */}
+        {/* SAĞ KOLON: TRADE INTERFACE */}
         <div className="lg:col-span-4 space-y-6">
             <div className="bg-[#2d1b4e] border border-white/10 rounded-2xl p-5 sticky top-24">
-                <div className="flex justify-between items-center mb-4">
-                     <button onClick={() => setShowSettings(!showSettings)} className="text-gray-400 hover:text-white"><Settings size={16}/></button>
-                     {showSettings && (
-                        <div className="absolute top-12 right-5 bg-[#1a0e2e] border border-white/20 p-3 rounded-lg z-50 shadow-xl w-48">
-                            <div className="text-xs font-bold text-white mb-2">Pro Settings</div>
-                            <div className="flex items-center justify-between mb-2"><span className="text-xs text-gray-400 flex items-center gap-1"><Crosshair size={10}/> Sniper Mode</span><input type="checkbox" checked={sniperMode} onChange={e=>setSniperMode(e.target.checked)}/></div>
-                            <div className="flex items-center justify-between mb-2"><span className="text-xs text-gray-400 flex items-center gap-1"><Lock size={10}/> MEV Protect</span><input type="checkbox" checked={mevProtect} onChange={e=>setMevProtect(e.target.checked)}/></div>
-                            <div className="text-xs text-gray-400 mb-1">Price Alert</div>
-                            <input type="text" placeholder="Target Price..." className="w-full bg-white/5 border border-white/10 rounded px-2 py-1 text-xs text-white" value={priceAlert} onChange={e=>setPriceAlert(e.target.value)} />
-                        </div>
-                     )}
-                </div>
-
                 <div className="grid grid-cols-2 gap-3 mb-6">
                     <button onClick={() => setActiveTab("buy")} className={`py-3 rounded-xl font-black ${activeTab==="buy"?"bg-green-500 text-white":"bg-white/5 text-gray-400"}`}>Buy</button>
                     <button onClick={() => setActiveTab("sell")} className={`py-3 rounded-xl font-black ${activeTab==="sell"?"bg-red-500 text-white":"bg-white/5 text-gray-400"}`}>Sell</button>
@@ -426,6 +407,7 @@ export default function TradePage(props: PageProps) {
                     {[10, 25, 50, 100].map(p => (
                         <button key={p} onClick={() => handlePercentage(p)} className="py-2 rounded-lg bg-white/5 hover:bg-white/10 text-xs font-bold">{p === 100 ? "MAX" : `${p}%`}</button>
                     ))}
+                    {activeTab === "buy" && <button onClick={() => setAmount("5")} className="py-2 rounded-lg bg-white/5 hover:bg-white/10 text-xs font-bold">5M</button>}
                 </div>
 
                 <div className="flex justify-end gap-2 items-center mb-4">
@@ -447,13 +429,11 @@ export default function TradePage(props: PageProps) {
                     <div className="flex justify-between text-xs mb-1"><span className="text-gray-400">Dex Graduation</span><span className="text-green-400">{migrationProgress.toFixed(1)}%</span></div>
                     <div className="h-2 bg-white/10 rounded-full overflow-hidden"><div className="h-full bg-gradient-to-r from-green-400 to-emerald-600 transition-all duration-500" style={{ width: `${migrationProgress}%` }} /></div>
                 </div>
-                <InfoRow label="Market Cap" value={`${marketCap.toLocaleString()} MATIC`} />
-                <InfoRow label="Holders" value={holderList.length} />
+                <div className="flex justify-between text-xs"><span className="text-gray-500">Holders</span><span className="text-white font-bold">{holderList.length}</span></div>
+                <div className="flex justify-between text-xs"><span className="text-gray-500">Market Cap</span><span className="text-white font-bold">{marketCap.toLocaleString()} MATIC</span></div>
             </div>
         </div>
       </main>
     </div>
   );
 }
-
-function InfoRow({ label, value }: any) { return (<div className="flex justify-between items-center text-xs"><span className="text-gray-500">{label}</span><span className="text-gray-200 font-bold">{value}</span></div>); }
