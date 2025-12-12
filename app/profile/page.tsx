@@ -34,6 +34,7 @@ export default function ProfilePage() {
         try {
           const balance = await publicClient.readContract({ address: tokenAddr as `0x${string}`, abi: erc20Abi, functionName: "balanceOf", args: [address] });
           
+          // Eğer bakiye varsa veya favorilerdeyse verileri çek
           if (balance > 0n || localFavs.includes(tokenAddr)) {
             const [name, symbol, salesData] = await Promise.all([
               publicClient.readContract({ address: tokenAddr as `0x${string}`, abi: erc20Abi, functionName: "name" }),
@@ -89,6 +90,7 @@ export default function ProfilePage() {
     </div>
   );
 
+  // Toplam Portföy Değeri Hesaplama
   const totalValue = heldTokens.reduce((sum, t) => sum + parseFloat(t.collateral) * 3200, 0);
 
   return (
