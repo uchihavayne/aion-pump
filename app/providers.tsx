@@ -1,50 +1,43 @@
 "use client";
 
 import * as React from "react";
-import {
-  RainbowKitProvider,
-  getDefaultWallets,
-  getDefaultConfig,
-} from "@rainbow-me/rainbowkit";
-import {
-  argentWallet,
-  trustWallet,
-  ledgerWallet,
-} from "@rainbow-me/rainbowkit/wallets";
-import {
-  polygon, // Polygon ağını kullanıyorsan
-  polygonAmoy, // Testnet kullanıyorsan bunu ekle
-} from "wagmi/chains";
+import { RainbowKitProvider, getDefaultWallets, getDefaultConfig } from "@rainbow-me/rainbowkit";
+import { trustWallet, ledgerWallet } from "@rainbow-me/rainbowkit/wallets";
+import { polygon } from "wagmi/chains";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { WagmiProvider } from "wagmi";
+import { WagmiProvider, http } from "wagmi";
+import "@rainbow-me/rainbowkit/styles.css";
 
 const { wallets } = getDefaultWallets();
 
 const config = getDefaultConfig({
   appName: "AION Pump",
-  projectId: "YOUR_PROJECT_ID", // WalletConnect Cloud'dan ID alabilirsin veya boş bırak
+  projectId: "YOUR_PROJECT_ID", // WalletConnect'ten ID alabilirsin veya boş bırak
+  chains: [polygon],
+  transports: {
+    [polygon.id]: http(),
+  },
   wallets: [
     ...wallets,
     {
       groupName: "Other",
-      wallets: [argentWallet, trustWallet, ledgerWallet],
+      wallets: [trustWallet, ledgerWallet],
     },
   ],
-  chains: [
-    polygon, // Ana ağ
-    // polygonAmoy // Test ediyorsan bunu aç
-  ],
-  ssr: true,
+  ssr: true, // Server Side Rendering hatasını çözen ayar budur
 });
 
 const queryClient = new QueryClient();
 
 export function Providers({ children }: { children: React.ReactNode }) {
+  const [mounted, setMounted] = React.useState(false);
+  React.useEffect(() => setMounted(true), []);
+
   return (
     <WagmiProvider config={config}>
       <QueryClientProvider client={queryClient}>
         <RainbowKitProvider>
-          {children}
+          {mounted && children}
         </RainbowKitProvider>
       </QueryClientProvider>
     </WagmiProvider>
