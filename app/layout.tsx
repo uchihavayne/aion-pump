@@ -1,14 +1,13 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
-import "@rainbow-me/rainbowkit/styles.css"; // RainbowKit stilleri
-import { Providers } from "./providers"; // Az önce oluşturduğumuz dosya
+import { Providers } from "./providers";
 
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "AION - Quantum Bonding Curve",
-  description: "Launch your token instantly on AION.",
+  title: "AION Pump",
+  description: "Launch your meme coin instantly on Polygon",
 };
 
 export default function RootLayout({
