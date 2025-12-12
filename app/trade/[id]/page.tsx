@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, use } from "react";
 import { ArrowLeft, Settings, Lock, MessageSquare, Users, Trophy } from "lucide-react";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import Link from "next/link";
@@ -16,8 +16,9 @@ const generateNickname = (address: string) => {
   return `${address.slice(0, 6)}...${address.slice(-4)}`;
 };
 
-export default function TradePage({ params }: { params: { id: string } }) {
-  const tokenAddress = params.id as `0x${string}`;
+export default function TradePage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params);
+  const tokenAddress = id as `0x${string}`;
   const publicClient = usePublicClient();
   const { isConnected, address } = useAccount();
   
