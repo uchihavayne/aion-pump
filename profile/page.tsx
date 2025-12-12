@@ -1,25 +1,45 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { ArrowLeft, Wallet, Star, TrendingUp, Coins } from "lucide-react";
-import { useAccount, useReadContract, usePublicClient } from "wagmi";
+import { ArrowLeft, Wallet, Star, TrendingUp, Coins, Copy, LogOut, Trophy, Shield, Award, Zap, Edit2, Check, X } from "lucide-react";
+import { useAccount, useReadContract, usePublicClient, useDisconnect } from "wagmi";
 import Link from "next/link";
 import { formatEther, erc20Abi } from "viem";
 import { CONTRACT_ADDRESS, CONTRACT_ABI } from "../contract";
 import { motion } from "framer-motion";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
+import toast, { Toaster } from 'react-hot-toast';
 
 export default function ProfilePage() {
   const { address, isConnected } = useAccount();
+  const { disconnect } = useDisconnect();
+  
+  // STATES
   const [activeTab, setActiveTab] = useState<"held" | "favorites">("held");
   const [heldTokens, setHeldTokens] = useState<any[]>([]);
   const [favTokens, setFavTokens] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+
+  // GAMIFICATION STATES
+  const [level, setLevel] = useState(1);
+  const [xp, setXp] = useState(0);
+  const [rankTitle, setRankTitle] = useState("Novice Trader");
+
+  // NICKNAME EDIT STATES
+  const [nickname, setNickname] = useState("");
+  const [isEditing, setIsEditing] = useState(false);
+  const [editInput, setEditInput] = useState("");
   
   const publicClient = usePublicClient();
   const { data: allTokens } = useReadContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "getAllTokens" });
 
   useEffect(() => {
+    // SAVED NICKNAME CONTROL
+    if (address) {
+        const savedName = localStorage.getItem(`nickname_${address}`);
+        if (savedName) setNickname(savedName);
+    }
+
     const fetchData = async () => {
       if (!allTokens || !address || !publicClient) return;
       setLoading(true);
@@ -55,21 +75,174 @@ export default function ProfilePage() {
       }
       setHeldTokens(held);
       setFavTokens(favs);
+
+      // XP & LEVEL HESAPLAMA
+      const currentXP = (held.length * 100) + (favs.length * 20);
+      setXp(currentXP);
+      
+      const calcLevel = Math.floor(currentXP / 300) + 1; 
+      setLevel(calcLevel);
+
+      // Rütbe Belirleme
+      if (calcLevel >= 20) setRankTitle("Market GOD ⚡");
+      else if (calcLevel >= 10) setRankTitle("Crypto Whale 🐋");
+      else if (calcLevel >= 5) setRankTitle("Degen Legend 🦍");
+      else if (calcLevel >= 2) setRankTitle("Diamond Hands 💎");
+      else setRankTitle("Novice Trader 👶");
+
       setLoading(false);
     };
 
     if (isConnected) fetchData();
   }, [allTokens, address, isConnected, publicClient]);
 
-  if (!isConnected) return <div className="min-h-screen bg-[#0a0e27] text-white flex flex-col items-center justify-center gap-6"><h1 className="text-3xl font-black text-[#FDDC11]">Connect Wallet</h1><ConnectButton /><Link href="/" className="text-sm text-gray-500 hover:text-white mt-4 flex items-center gap-2"><ArrowLeft size={16}/> Back to Home</Link></div>;
+  // İSİM KAYDETME
+  const saveNickname = () => {
+      if(!editInput.trim()) return;
+      setNickname(editInput);
+      localStorage.setItem(`nickname_${address}`, editInput);
+      setIsEditing(false);
+      toast.success("Nickname Updated!");
+  };
+
+  if (!isConnected) return (
+    <div style={{ backgroundColor: '#0a0e27', color: '#fff', minHeight: '100vh', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', position: 'relative', overflow: 'hidden', backgroundImage: 'radial-gradient(circle at 50% 0%, #1e1b4b 0%, #0a0e27 60%)' }}>
+      <Toaster position="top-right" />
+      <div style={{ position: 'fixed', top: '-20%', right: '-10%', width: '600px', height: '600px', background: 'radial-gradient(circle, rgba(253,220,17,0.08) 0%, transparent 70%)', filter: 'blur(80px)', zIndex: 0 }} />
+      <div style={{ position: 'fixed', bottom: '-20%', left: '-10%', width: '600px', height: '600px', background: 'radial-gradient(circle, rgba(147,51,234,0.08) 0%, transparent 70%)', filter: 'blur(80px)', zIndex: 0 }} />
+      <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '24px', position: 'relative', zIndex: 10 }}>
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} style={{ textAlign: 'center' }}>
+          <div style={{ width: '80px', height: '80px', margin: '0 auto 24px', borderRadius: '20px', background: 'linear-gradient(135deg, #FDDC11, #9333ea)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 0 30px rgba(253, 220, 17, 0.4)' }}><Wallet size={40} style={{ color: '#000' }} /></div>
+          <h1 style={{ fontSize: '40px', fontWeight: '900', marginBottom: '8px' }}>Connect Your Wallet</h1>
+          <p style={{ fontSize: '16px', color: '#94a3b8', marginBottom: '32px' }}>Start trading tokens on Polygon</p>
+          <div style={{ transform: 'scale(1.1)' }}><ConnectButton /></div>
+        </motion.div>
+        <Link href="/" style={{ marginTop: '40px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', color: '#64748b', textDecoration: 'none', transition: 'color 0.3s' }}><ArrowLeft size={16} />Back to Home</Link>
+      </div>
+    </div>
+  );
+
+  const totalValue = heldTokens.reduce((sum, t) => sum + parseFloat(t.collateral) * 3200, 0);
 
   return (
-    <div className="min-h-screen bg-[#0a0e27] text-white font-sans">
-      <header className="sticky top-0 z-40 bg-[#0a0e27]/90 backdrop-blur-md border-b border-white/5 p-4"><div className="max-w-5xl mx-auto flex justify-between items-center"><Link href="/" className="flex items-center gap-2 text-gray-400 hover:text-white"><ArrowLeft size={20} /><span className="font-bold">Back to Board</span></Link><ConnectButton showBalance={false} accountStatus="avatar" /></div></header>
-      <main className="max-w-5xl mx-auto px-4 py-8">
-        <div className="flex items-center gap-4 mb-8"><div className="w-16 h-16 rounded-full bg-gradient-to-br from-[#FDDC11] to-[#9333ea] flex items-center justify-center shadow-[0_0_30px_rgba(253,220,17,0.3)]"><Wallet size={32} className="text-black" /></div><div><h1 className="text-3xl font-black">My Portfolio</h1><p className="text-gray-400">Track holdings & favorites</p></div></div>
-        <div className="flex gap-4 mb-8 border-b border-white/10 pb-4"><button onClick={() => setActiveTab("held")} className={`flex items-center gap-2 px-6 py-2 rounded-full font-bold transition-all ${activeTab === "held" ? "bg-[#FDDC11] text-black" : "bg-white/5 text-gray-400"}`}><Coins size={16} /> Held ({heldTokens.length})</button><button onClick={() => setActiveTab("favorites")} className={`flex items-center gap-2 px-6 py-2 rounded-full font-bold transition-all ${activeTab === "favorites" ? "bg-[#FDDC11] text-black" : "bg-white/5 text-gray-400"}`}><Star size={16} /> Watchlist ({favTokens.length})</button></div>
-        {loading ? <div className="text-center py-20 text-gray-500 animate-pulse">Loading data...</div> : <div className="grid grid-cols-1 md:grid-cols-2 gap-4">{(activeTab === "held" ? heldTokens : favTokens).map((token: any) => (<Link href={`/trade/${token.address}`} key={token.address}><motion.div whileHover={{ y: -4 }} className="bg-white/5 border border-white/10 rounded-xl p-5 hover:border-[#FDDC11]/50 cursor-pointer"><div className="flex justify-between items-start mb-4"><div className="flex items-center gap-3"><div className="w-10 h-10 rounded-lg bg-gray-800 flex items-center justify-center font-bold">{token.symbol[0]}</div><div><div className="font-bold">{token.name}</div><div className="text-xs text-[#FDDC11]">{token.symbol}</div></div></div>{token.isFav && <Star size={16} className="fill-[#FDDC11] text-[#FDDC11]" />}</div><div className="flex justify-between items-end border-t border-white/5 pt-4"><div><div className="text-xs text-gray-500">BALANCE</div><div className="text-xl font-bold">{parseFloat(token.balance).toFixed(2)}</div></div><div className="text-right"><div className="text-xs text-gray-500">MCAP</div><div className="text-sm font-bold text-green-400">{(parseFloat(token.collateral) * 3200).toLocaleString()} $</div></div></div></motion.div></Link>))}</div>}
+    <div style={{ backgroundColor: '#0a0e27', color: '#fff', minHeight: '100vh', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', position: 'relative', overflow: 'hidden', backgroundImage: 'radial-gradient(circle at 50% 0%, #1e1b4b 0%, #0a0e27 60%)' }}>
+      <Toaster position="top-right" toastOptions={{ style: { background: '#1F2128', color: '#fff', border: '1px solid #333' } }} />
+      <div style={{ position: 'fixed', top: '-20%', right: '-10%', width: '600px', height: '600px', background: 'radial-gradient(circle, rgba(253,220,17,0.08) 0%, transparent 70%)', filter: 'blur(80px)', zIndex: 0 }} />
+      <div style={{ position: 'fixed', bottom: '-20%', left: '-10%', width: '600px', height: '600px', background: 'radial-gradient(circle, rgba(147,51,234,0.08) 0%, transparent 70%)', filter: 'blur(80px)', zIndex: 0 }} />
+
+      <header style={{ position: 'sticky', top: 0, zIndex: 40, backgroundColor: 'rgba(10, 14, 39, 0.8)', backdropFilter: 'blur(12px)', borderBottom: '1px solid rgba(255, 255, 255, 0.05)', padding: '16px 0' }}>
+        <div style={{ maxWidth: '1280px', margin: '0 auto', padding: '0 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#94a3b8', textDecoration: 'none', cursor: 'pointer', transition: 'color 0.3s' }}><ArrowLeft size={18} /><span style={{ fontSize: '14px', fontWeight: '600' }}>Back to Board</span></Link>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}><div style={{ transform: 'scale(0.9)' }}><ConnectButton showBalance={false} accountStatus="avatar" chainStatus="none" /></div></div>
+        </div>
+      </header>
+
+      <main style={{ maxWidth: '1280px', margin: '0 auto', padding: '40px 20px', position: 'relative', zIndex: 10 }}>
+        {/* GAMIFIED PROFILE CARD */}
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} style={{ borderRadius: '24px', border: '1px solid rgba(253, 220, 17, 0.2)', background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.8), rgba(15, 23, 42, 0.9))', backdropFilter: 'blur(20px)', padding: '32px', marginBottom: '32px', position: 'relative', overflow: 'hidden' }}>
+          <div style={{ position: 'absolute', right: 0, top: 0, padding: '20px', opacity: 0.1 }}><Trophy size={200} color="#FDDC11" /></div>
+          
+          <div style={{ display: 'flex', alignItems: 'center', gap: '24px', position: 'relative', zIndex: 10 }}>
+             {/* Avatar & Level */}
+             <div style={{ position: 'relative' }}>
+                <div style={{ width: '80px', height: '80px', borderRadius: '50%', background: '#000', border: '3px solid #FDDC11', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '32px' }}>{level > 5 ? '🦍' : '👽'}</div>
+                <div style={{ position: 'absolute', bottom: '-10px', left: '50%', transform: 'translateX(-50%)', background: '#FDDC11', color: '#000', padding: '4px 10px', borderRadius: '12px', fontWeight: '900', fontSize: '12px', border: '2px solid #000', whiteSpace: 'nowrap' }}>LVL {level}</div>
+             </div>
+
+             <div style={{ flex: 1 }}>
+                {/* NICKNAME & RANK DISPLAY */}
+                <div style={{ marginBottom: '8px' }}>
+                   {isEditing ? (
+                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                           <input type="text" value={editInput} onChange={(e) => setEditInput(e.target.value)} placeholder="Enter Name..." style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid #FDDC11', borderRadius: '8px', padding: '4px 12px', fontSize: '20px', fontWeight: 'bold', color: '#fff', outline: 'none' }} autoFocus />
+                           <button onClick={saveNickname} style={{ padding: '6px', background: '#22c55e', borderRadius: '8px', border: 'none', cursor: 'pointer' }}><Check size={16} color="white"/></button>
+                           <button onClick={() => setIsEditing(false)} style={{ padding: '6px', background: '#ef4444', borderRadius: '8px', border: 'none', cursor: 'pointer' }}><X size={16} color="white"/></button>
+                       </div>
+                   ) : (
+                       <div style={{ display: 'flex', flexDirection: 'column' }}>
+                           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', group: 'true' as any }}>
+                               {/* EĞER NICKNAME VARSA ONU GÖSTER, YOKSA RÜTBEYİ GÖSTER */}
+                               <h1 style={{ fontSize: '28px', fontWeight: '900', margin: 0, color: '#fff' }}>{nickname || rankTitle}</h1>
+                               <button onClick={() => { setIsEditing(true); setEditInput(nickname || rankTitle); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b' }}><Edit2 size={16} /></button>
+                               {level > 5 && <Shield size={20} className="text-green-400 fill-green-400/20" />}
+                           </div>
+                           
+                           {/* EĞER NICKNAME VARSA, RÜTBEYİ ALTTA BADGE OLARAK GÖSTER */}
+                           {nickname && (
+                               <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#FDDC11', backgroundColor: 'rgba(253, 220, 17, 0.1)', padding: '2px 8px', borderRadius: '4px', width: 'fit-content', marginTop: '4px' }}>
+                                   {rankTitle}
+                               </span>
+                           )}
+                       </div>
+                   )}
+                </div>
+
+                <div style={{ fontSize: '14px', color: '#94a3b8', marginBottom: '12px' }}>{address?.slice(0,6)}...{address?.slice(-4)}</div>
+                
+                {/* XP Bar */}
+                <div style={{ width: '100%', maxWidth: '300px', height: '8px', background: 'rgba(255,255,255,0.1)', borderRadius: '4px', overflow: 'hidden' }}>
+                   <div style={{ height: '100%', width: `${(xp % 300) / 3}%`, background: '#FDDC11', transition: 'width 0.5s' }} />
+                </div>
+                <div style={{ fontSize: '10px', color: '#64748b', marginTop: '4px' }}>{xp} XP / {level * 300} XP to next level</div>
+             </div>
+
+             {/* Stats Box */}
+             <div style={{ display: 'flex', gap: '24px', textAlign: 'center' }}>
+                <div><div style={{ fontSize: '12px', color: '#94a3b8' }}>Net Worth</div><div style={{ fontSize: '20px', fontWeight: '900', color: '#10b981' }}>${totalValue.toLocaleString('en-US', { maximumFractionDigits: 0 })}</div></div>
+                <div><div style={{ fontSize: '12px', color: '#94a3b8' }}>Tokens</div><div style={{ fontSize: '20px', fontWeight: '900' }}>{heldTokens.length}</div></div>
+             </div>
+          </div>
+        </motion.div>
+
+        {/* Tabs */}
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} style={{ marginBottom: '32px', display: 'flex', gap: '12px', borderBottom: '1px solid rgba(255, 255, 255, 0.05)', paddingBottom: '16px' }}>
+          <button onClick={() => setActiveTab("held")} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 20px', borderRadius: '12px', fontWeight: '700', fontSize: '14px', border: 'none', backgroundColor: activeTab === "held" ? 'rgba(253, 220, 17, 0.2)' : 'transparent', color: activeTab === "held" ? '#FDDC11' : '#94a3b8', cursor: 'pointer', transition: 'all 0.3s', borderBottom: activeTab === "held" ? '2px solid #FDDC11' : 'none' }}>
+            <Coins size={16} /> Holdings ({heldTokens.length})
+          </button>
+          <button onClick={() => setActiveTab("favorites")} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 20px', borderRadius: '12px', fontWeight: '700', fontSize: '14px', border: 'none', backgroundColor: activeTab === "favorites" ? 'rgba(253, 220, 17, 0.2)' : 'transparent', color: activeTab === "favorites" ? '#FDDC11' : '#94a3b8', cursor: 'pointer', transition: 'all 0.3s', borderBottom: activeTab === "favorites" ? '2px solid #FDDC11' : 'none' }}>
+            <Star size={16} /> Watchlist ({favTokens.length})
+          </button>
+        </motion.div>
+
+        {/* Token Grid */}
+        {loading ? (
+          <div style={{ textAlign: 'center', padding: '80px 20px', color: '#64748b', fontSize: '16px' }}>
+            <motion.div animate={{ opacity: [0.5, 1, 0.5] }} transition={{ duration: 2, repeat: Infinity }} style={{ display: 'inline-block' }}>Scanning blockchain...</motion.div>
+          </div>
+        ) : (activeTab === "held" ? heldTokens : favTokens).length === 0 ? (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ textAlign: 'center', padding: '80px 20px', borderRadius: '20px', border: '1px dashed rgba(253, 220, 17, 0.2)', backgroundColor: 'rgba(253, 220, 17, 0.05)' }}>
+            <Star size={48} style={{ color: '#64748b', margin: '0 auto 16px', opacity: 0.5 }} />
+            <p style={{ fontSize: '16px', color: '#64748b', margin: 0 }}>{activeTab === "held" ? "You don't hold any tokens yet. Start trading!" : "Your watchlist is empty."}</p>
+            <Link href="/" style={{ display: 'inline-block', marginTop: '16px', color: '#FDDC11', textDecoration: 'none', fontWeight: 'bold' }}>Find Gems 🚀</Link>
+          </motion.div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '20px' }}>
+            {(activeTab === "held" ? heldTokens : favTokens).map((token: any, idx) => (
+              <Link href={`/trade/${token.address}`} key={token.address} style={{ textDecoration: 'none' }}>
+                <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: idx * 0.05 }} whileHover={{ y: -8, borderColor: 'rgba(253, 220, 17, 0.5)' }} style={{ borderRadius: '16px', border: '1px solid rgba(253, 220, 17, 0.15)', background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.4), rgba(15, 23, 42, 0.6))', backdropFilter: 'blur(10px)', padding: '20px', cursor: 'pointer', transition: 'all 0.3s', height: '100%', display: 'flex', flexDirection: 'column' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: 'linear-gradient(135deg, #FDDC11, #9333ea)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '20px', fontWeight: '900', color: '#000' }}>{token.symbol[0]}</div>
+                      <div>
+                        <div style={{ fontSize: '16px', fontWeight: '900', margin: 0 }}>{token.name}</div>
+                        <div style={{ fontSize: '12px', color: '#FDDC11', fontWeight: '700', margin: 0 }}>{token.symbol}</div>
+                      </div>
+                    </div>
+                    {token.isFav && <Star size={20} style={{ color: '#FDDC11', fill: '#FDDC11' }} />}
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: '12px', color: '#94a3b8', fontWeight: '600', marginBottom: '4px' }}>Balance</div>
+                    <div style={{ fontSize: '24px', fontWeight: '900', marginBottom: '16px' }}>{parseFloat(token.balance) > 0.01 ? parseFloat(token.balance).toFixed(2) : parseFloat(token.balance).toFixed(6)}</div>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '16px', borderTop: '1px solid rgba(255, 255, 255, 0.05)' }}>
+                    <div><div style={{ fontSize: '11px', color: '#64748b', fontWeight: '600' }}>MARKET CAP</div><div style={{ fontSize: '14px', fontWeight: '900', color: '#10b981' }}>${(parseFloat(token.collateral) * 3200).toLocaleString('en-US', { maximumFractionDigits: 0 })}</div></div>
+                    <div style={{ textAlign: 'right' }}><div style={{ fontSize: '11px', color: '#64748b', fontWeight: '600' }}>YOUR SHARE</div><div style={{ fontSize: '14px', fontWeight: '900', color: '#FDDC11' }}>{((parseFloat(token.balance) / 1000000000) * 100).toFixed(2)}%</div></div>
+                  </div>
+                </motion.div>
+              </Link>
+            ))}
+          </div>
+        )}
       </main>
     </div>
   );
