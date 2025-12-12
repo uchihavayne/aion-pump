@@ -112,7 +112,7 @@ export default function TradePage({ params }: { params: { id: string } }) {
 
   const needsApproval = activeTab === "sell" && (!allowance || (amount && parseFloat(amount) > parseFloat(formatEther(allowance as bigint))));
 
-  // ============ FETCH EVENTS - FIXED VERSION ============
+  // ============ FETCH EVENTS - USING VIEM PROPERLY ============
   const fetchEventsFromChain = async () => {
     if (!publicClient) {
       console.log("❌ No public client");
@@ -121,78 +121,153 @@ export default function TradePage({ params }: { params: { id: string } }) {
 
     try {
       const blockNumber = await publicClient.getBlockNumber();
-      // Polygon RPC limit: max 100 blocks per request
-      const fromBlock = blockNumber > 100n ? blockNumber - 100n : 0n;
+      // Use 128 block range (safe for most RPC)
+      const fromBlock = blockNumber > 128n ? blockNumber - 128n : 0n;
 
       console.log(`🔍 Fetching from block ${fromBlock} to ${blockNumber}`);
-      console.log(`📍 Contract: ${CONTRACT_ADDRESS}`);
-      console.log(`🎫 Token: ${tokenAddress}`);
 
-      // Get raw logs from CONTRACT with smaller range
-      let allLogs: any[] = [];
-      
+      // Get logs with smaller range
+      let buyLogs: any[] = [];
+      let sellLogs: any[] = [];
+
       try {
-        allLogs = await publicClient.getLogs({
+        buyLogs = await publicClient.getContractEvents({
           address: CONTRACT_ADDRESS,
+          abi: CONTRACT_ABI,
+          eventName: 'Buy',
           fromBlock,
           toBlock: 'latest'
         });
-      } catch (e: any) {
-        console.log("❌ getLogs failed, trying with event filters...");
-        
-        // Fallback: Try fetching with specific event topics
+        console.log(`✅ Got ${buyLogs.length} Buy events`);
+      } catch (e) {
+        console.log("⚠️ Buy events fetch failed:", e);
+      }
+
+      try {
+        sellLogs = await publicClient.getContractEvents({
+          address: CONTRACT_ADDRESS,
+          abi: CONTRACT_ABI,
+          eventName: 'Sell',
+          fromBlock,
+          toBlock: 'latest'
+        });
+        console.log(`✅ Got ${sellLogs.length} Sell events`);
+      } catch (e) {
+        console.log("⚠️ Sell events fetch failed:", e);
+      }
+
+      const newTrades: any[] = [];
+      const holderMap: Record<string, bigint> = {};
+      const newChartData: any[] = [];
+      let lastPrice = currentPrice;
+
+      // Process Buy events
+      for (const log of buyLogs) {
+        if (processedTxHashes.current.has(log.transactionHash)) continue;
+        processedTxHashes.current.add(log.transactionHash);
+
         try {
-          const BUY_SIG = "0x" + Buffer.from("Buy(address,address,uint256,uint256)").toString('hex').substring(2);
-          const logs = await publicClient.getLogs({
-            address: CONTRACT_ADDRESS,
-            events: [{ name: 'Buy', topics: [BUY_SIG] }] as any,
-            fromBlock,
-            toBlock: 'latest'
-          }).catch(() => []);
-          allLogs = logs;
-        } catch (e2) {
-          console.log("Fallback also failed");
+          const { token, buyer, amountMATIC, amountTokens } = log.args as any;
+
+          // Skip if not our token
+          if (token.toLowerCase() !== tokenAddress.toLowerCase()) continue;
+
+          const maticVal = parseFloat(formatEther(amountMATIC));
+          const tokenVal = parseFloat(formatEther(amountTokens));
+          const price = tokenVal > 0 ? maticVal / tokenVal : lastPrice;
+
+          newTrades.unshift({
+            user: buyer,
+            type: 'BUY',
+            maticAmount: maticVal.toFixed(4),
+            tokenAmount: tokenVal.toFixed(2),
+            price: price.toFixed(8),
+            blockNumber: log.blockNumber.toString()
+          });
+
+          newChartData.push({
+            name: log.blockNumber.toString(),
+            price,
+            fill: '#10b981'
+          });
+
+          holderMap[buyer] = (holderMap[buyer] || 0n) + amountTokens;
+          lastPrice = price;
+
+          console.log(`🟢 BUY: ${buyer.slice(0, 8)}... ${tokenVal.toFixed(2)} tokens for ${maticVal.toFixed(4)} MATIC`);
+        } catch (e) {
+          console.error("Buy parse error:", e);
         }
       }
 
-      // ✅ FALLBACK: Dummy data göster (gerçek işlemler event'ten gelecek)
-      // Şimdilik static data ile UI'ı test et
-      const dummyPrice = virtualMaticReserves / virtualTokenReserves;
-      const dummyTrades = [
-        {
-          user: "0x1234...5678",
-          type: "BUY",
-          maticAmount: "0.5000",
-          tokenAmount: "1000000.00",
-          price: dummyPrice.toFixed(8),
-          blockNumber: "80232500"
+      // Process Sell events
+      for (const log of sellLogs) {
+        if (processedTxHashes.current.has(log.transactionHash)) continue;
+        processedTxHashes.current.add(log.transactionHash);
+
+        try {
+          const { token, seller, amountTokens, amountMATIC } = log.args as any;
+
+          // Skip if not our token
+          if (token.toLowerCase() !== tokenAddress.toLowerCase()) continue;
+
+          const maticVal = parseFloat(formatEther(amountMATIC));
+          const tokenVal = parseFloat(formatEther(amountTokens));
+          const price = tokenVal > 0 ? maticVal / tokenVal : lastPrice;
+
+          newTrades.unshift({
+            user: seller,
+            type: 'SELL',
+            maticAmount: maticVal.toFixed(4),
+            tokenAmount: tokenVal.toFixed(2),
+            price: price.toFixed(8),
+            blockNumber: log.blockNumber.toString()
+          });
+
+          newChartData.push({
+            name: log.blockNumber.toString(),
+            price,
+            fill: '#ef4444'
+          });
+
+          holderMap[seller] = (holderMap[seller] || 0n) - amountTokens;
+          lastPrice = price;
+
+          console.log(`🔴 SELL: ${seller.slice(0, 8)}... ${tokenVal.toFixed(2)} tokens for ${maticVal.toFixed(4)} MATIC`);
+        } catch (e) {
+          console.error("Sell parse error:", e);
         }
-      ];
+      }
 
-      console.log(`⚠️ Events not available - using fallback display`);
-      console.log(`💡 Current Price: ${dummyPrice.toFixed(9)} MATIC`);
-      console.log(`📊 Virtual Reserves: ${virtualMaticReserves} MATIC / ${virtualTokenReserves} Tokens`);
+      // Process holders
+      const holdersList = Object.entries(holderMap)
+        .filter(([_, balance]) => balance > 0n)
+        .map(([addr, balance]) => ({
+          address: addr as `0x${string}`,
+          balance,
+          percentage: (Number(balance) / 1e18 / 1_000_000_000) * 100
+        }))
+        .sort((a, b) => Number(b.balance) - Number(a.balance))
+        .slice(0, 20);
 
-      // Minimal chart data
-      setTrades(dummyTrades);
-      setChartData([
-        { name: "0", price: dummyPrice, fill: '#10b981' },
-        { name: "1", price: dummyPrice * 1.01, fill: '#10b981' },
-        { name: "2", price: dummyPrice * 0.99, fill: '#ef4444' }
-      ]);
-      setHolders([]);
+      console.log(`✅ Processed: ${newTrades.length} trades, ${holdersList.length} holders`);
+
+      if (newTrades.length > 0 || newChartData.length > 0) {
+        setTrades(newTrades.slice(0, 50));
+        setChartData(newChartData);
+        setHolders(holdersList);
+      }
+
     } catch (error) {
-      console.error("❌ CRITICAL ERROR:", error);
+      console.error("❌ Fetch error:", error);
     }
   };
 
-  // Initial fetch
   useEffect(() => {
     setIsMounted(true);
     fetchEventsFromChain();
 
-    // Poll every 5 seconds
-    const interval = setInterval(fetchEventsFromChain, 5000);
+    const interval = setInterval(fetchEventsFromChain, 6000);
     return () => clearInterval(interval);
   }, [publicClient, tokenAddress]);
 
