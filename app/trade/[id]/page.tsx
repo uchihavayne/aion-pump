@@ -80,15 +80,30 @@ export default function TradePage({ params }: { params: { id: string } }) {
     args: [tokenAddress]
   });
 
+  // ============ DEBUG: Log sales data ============
+  useEffect(() => {
+    if (salesData) {
+      console.log("📊 Sales Data:", {
+        full: salesData,
+        creator: salesData[0],
+        virtualMaticReserves: formatEther(salesData[1] as bigint),
+        virtualTokenReserves: formatEther(salesData[2] as bigint),
+        migrated: salesData[3],
+        creationTime: salesData[4]
+      });
+    }
+  }, [salesData]);
+
   // ============ CORRECT PRICE CALCULATION ============
   // sales returns: [creator, virtualMaticReserves, virtualTokenReserves, migrated, creationTime]
-  const virtualMaticReserves = salesData ? parseFloat(formatEther(salesData[1] as bigint)) : 0;
-  const virtualTokenReserves = salesData ? parseFloat(formatEther(salesData[2] as bigint)) : 0;
+  const virtualMaticReserves = salesData ? parseFloat(formatEther(salesData[1] as bigint)) : 3000;
+  const virtualTokenReserves = salesData ? parseFloat(formatEther(salesData[2] as bigint)) : 1_000_000_000;
   
   const currentPrice = virtualTokenReserves > 0 ? virtualMaticReserves / virtualTokenReserves : 0.0000001;
   const marketCap = currentPrice * 1_000_000_000;
-  const progress = (1_000_000_000 - virtualTokenReserves) / 10_000_000; // Tokens sold
-  const realProgress = Math.min(progress / 100, 100);
+  const tokensSold = 1_000_000_000 - virtualTokenReserves;
+  const progress = (tokensSold / 1_000_000_000) * 100;
+  const realProgress = Math.min(progress, 100);
 
   const desc = metadata ? metadata[0] : "";
   const twitter = metadata ? metadata[1] : "";
@@ -100,7 +115,7 @@ export default function TradePage({ params }: { params: { id: string } }) {
   // ============ FETCH EVENTS ============
   const fetchEventsFromChain = async () => {
     if (!publicClient) {
-      console.log("No public client");
+      console.log("❌ No public client");
       return;
     }
 
@@ -108,46 +123,62 @@ export default function TradePage({ params }: { params: { id: string } }) {
       const blockNumber = await publicClient.getBlockNumber();
       const fromBlock = blockNumber > 500n ? blockNumber - 500n : 0n;
 
-      console.log(`📊 Fetching events from block ${fromBlock} to ${blockNumber}`);
+      console.log(`🔍 Fetching from block ${fromBlock} to ${blockNumber} for token: ${tokenAddress}`);
 
-      // Get raw logs
+      // Get raw logs from contract
       const logs = await publicClient.getLogs({
         address: CONTRACT_ADDRESS,
         fromBlock,
         toBlock: 'latest'
       });
 
-      console.log(`✅ Got ${logs.length} logs from contract`);
+      console.log(`✅ Got ${logs.length} total logs`);
+      
+      // Log ALL events
+      logs.forEach((log, idx) => {
+        console.log(`Log ${idx}:`, {
+          topics: log.topics,
+          data: log.data.slice(0, 100) + '...',
+          token_topic: log.topics[1]?.slice(-40)
+        });
+      });
 
       const newTrades: any[] = [];
       const holderMap: Record<string, bigint> = {};
       const newChartData: any[] = [];
       let lastPrice = 0.0000001;
 
-      // Process each log
       for (const log of logs) {
         if (!log.topics || log.topics.length < 2) continue;
 
         const eventSig = log.topics[0];
         const tokenTopic = log.topics[1];
 
-        // Check if this event is for our token
+        // Get token address from topic (remove leading zeros)
         const logTokenAddr = `0x${tokenTopic.slice(-40)}`.toLowerCase();
+        
+        console.log(`Checking ${logTokenAddr} against ${tokenAddress.toLowerCase()}`);
+
         if (logTokenAddr !== tokenAddress.toLowerCase()) {
           continue;
         }
 
-        // Skip if already processed
-        if (processedTxHashes.current.has(log.transactionHash)) continue;
+        console.log("✅ MATCH! Processing event...");
+
+        if (processedTxHashes.current.has(log.transactionHash)) {
+          console.log("⏭️ Already processed");
+          continue;
+        }
         processedTxHashes.current.add(log.transactionHash);
 
         try {
-          // Decode using viem's decodeEventLog
           const decoded = decodeEventLog({
             abi: CONTRACT_ABI,
             data: log.data,
             topics: log.topics,
           });
+
+          console.log("✅ Decoded:", decoded.eventName, decoded.args);
 
           if (decoded.eventName === 'Buy') {
             const { buyer, amountMATIC, amountTokens } = decoded.args as any;
@@ -171,11 +202,10 @@ export default function TradePage({ params }: { params: { id: string } }) {
               fill: '#10b981'
             });
 
-            // Track holder
             holderMap[buyer] = (holderMap[buyer] || 0n) + amountTokens;
             lastPrice = price;
 
-            console.log(`🟢 Buy: ${buyer.slice(0, 6)}... bought ${tokenVal.toFixed(2)} tokens for ${maticVal.toFixed(4)} MATIC`);
+            console.log(`🟢 BUY: ${buyer.slice(0, 6)}... ${tokenVal.toFixed(2)} tokens for ${maticVal.toFixed(4)} MATIC`);
           } 
           else if (decoded.eventName === 'Sell') {
             const { seller, amountTokens, amountMATIC } = decoded.args as any;
@@ -199,14 +229,13 @@ export default function TradePage({ params }: { params: { id: string } }) {
               fill: '#ef4444'
             });
 
-            // Track holder
             holderMap[seller] = (holderMap[seller] || 0n) - amountTokens;
             lastPrice = price;
 
-            console.log(`🔴 Sell: ${seller.slice(0, 6)}... sold ${tokenVal.toFixed(2)} tokens for ${maticVal.toFixed(4)} MATIC`);
+            console.log(`🔴 SELL: ${seller.slice(0, 6)}... ${tokenVal.toFixed(2)} tokens for ${maticVal.toFixed(4)} MATIC`);
           }
         } catch (e) {
-          console.error("Decode error:", e);
+          console.error("❌ Decode error:", e);
         }
       }
 
@@ -221,13 +250,13 @@ export default function TradePage({ params }: { params: { id: string } }) {
         .sort((a, b) => Number(b.balance) - Number(a.balance))
         .slice(0, 20);
 
-      console.log(`✅ Processed ${newTrades.length} trades, ${holdersList.length} holders`);
+      console.log(`✅ FINAL: ${newTrades.length} trades, ${holdersList.length} holders`);
 
       setTrades(newTrades.slice(0, 50));
       setChartData(newChartData);
       setHolders(holdersList);
     } catch (error) {
-      console.error("❌ Fetch error:", error);
+      console.error("❌ CRITICAL ERROR:", error);
     }
   };
 
