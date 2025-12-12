@@ -1,228 +1,457 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { ArrowLeft, Wallet, Star, TrendingUp, Coins, Copy, LogOut } from "lucide-react";
-import { useAccount, useReadContract, usePublicClient, useDisconnect } from "wagmi";
-import Link from "next/link";
-import { formatEther, erc20Abi } from "viem";
-import { CONTRACT_ADDRESS, CONTRACT_ABI } from "../contract";
-import { motion } from "framer-motion";
+import { useState, useEffect, useRef, use } from "react";
+import { 
+  ArrowLeft, Twitter, Globe, Send, Copy, TrendingUp, MessageSquare, 
+  User, ExternalLink, Coins, Users, Settings, Share2, Star, 
+  Shield, AlertTriangle, Info, Gift, Zap, ImageIcon, Download, 
+  Crosshair, Lock, Bell
+} from "lucide-react";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
+import Link from "next/link";
+import { useWriteContract, useWaitForTransactionReceipt, useReadContract, useWatchContractEvent, useAccount, usePublicClient, useBalance, useSendTransaction } from "wagmi"; 
+import { parseEther, formatEther, erc20Abi } from "viem"; 
+import { CONTRACT_ADDRESS, CONTRACT_ABI } from "../../contract"; 
+import { ComposedChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, PieChart, Pie } from 'recharts';
 import toast, { Toaster } from 'react-hot-toast';
+import { motion, AnimatePresence } from "framer-motion";
+import Confetti from 'react-confetti';
 
-export default function ProfilePage() {
-  const { address, isConnected } = useAccount();
-  const { disconnect } = useDisconnect();
-  const [activeTab, setActiveTab] = useState<"held" | "favorites">("held");
-  const [heldTokens, setHeldTokens] = useState<any[]>([]);
-  const [favTokens, setFavTokens] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
-  
-  const publicClient = usePublicClient();
-  const { data: allTokens } = useReadContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "getAllTokens" });
+// SHAKE ANIMATION
+const shakeStyle = `
+  @keyframes shake { 0% { transform: translate(1px, 1px) rotate(0deg); } 10% { transform: translate(-1px, -2px) rotate(-1deg); } 20% { transform: translate(-3px, 0px) rotate(1deg); } 30% { transform: translate(3px, 2px) rotate(0deg); } 40% { transform: translate(1px, -1px) rotate(1deg); } 50% { transform: translate(-1px, 2px) rotate(-1deg); } 60% { transform: translate(-3px, 1px) rotate(0deg); } 70% { transform: translate(3px, 1px) rotate(-1deg); } 80% { transform: translate(-1px, -1px) rotate(1deg); } 90% { transform: translate(1px, 2px) rotate(0deg); } 100% { transform: translate(1px, -2px) rotate(-1deg); } }
+  .shake-screen { animation: shake 0.5s; animation-iteration-count: 1; }
+`;
 
-  useEffect(() => {
-    const fetchData = async () => {
-      if (!allTokens || !address || !publicClient) return;
-      setLoading(true);
+// Media Renderer
+const MediaRenderer = ({ src, className }: { src: string, className: string }) => {
+    const isVideo = src.includes(".mp4") || src.includes(".webm");
+    if (isVideo) return <video src={src} className={className} autoPlay muted loop playsInline />;
+    return <img src={src} className={className} alt="token" />;
+};
 
-      const held: any[] = [];
-      const favs: any[] = [];
-      const localFavs = JSON.parse(localStorage.getItem("favorites") || "[]");
+const getTokenImage = (address: string, customImage?: string) => 
+  customImage || `https://api.dyneui.com/avatar/abstract?seed=${address}&size=400&background=000000&color=FDDC11&pattern=circuit&variance=0.7`;
 
-      for (const tokenAddr of (allTokens as string[])) {
-        try {
-          const balance = await publicClient.readContract({ address: tokenAddr as `0x${string}`, abi: erc20Abi, functionName: "balanceOf", args: [address] });
-          
-          // Eğer bakiye varsa veya favorilerdeyse verileri çek
-          if (balance > 0n || localFavs.includes(tokenAddr)) {
-            const [name, symbol, salesData] = await Promise.all([
-              publicClient.readContract({ address: tokenAddr as `0x${string}`, abi: erc20Abi, functionName: "name" }),
-              publicClient.readContract({ address: tokenAddr as `0x${string}`, abi: erc20Abi, functionName: "symbol" }),
-              publicClient.readContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "sales", args: [tokenAddr as `0x${string}`] })
-            ]);
+const formatTokenAmount = (num: number) => {
+  if (num >= 1000000) return (num / 1000000).toFixed(2) + "M";
+  if (num >= 1000) return (num / 1000).toFixed(2) + "k";
+  return num.toFixed(2);
+};
 
-            const tokenData = {
-              address: tokenAddr,
-              name,
-              symbol,
-              balance: formatEther(balance),
-              isFav: localFavs.includes(tokenAddr),
-              collateral: salesData ? formatEther(salesData[1] as bigint) : "0"
-            };
+const playSound = (type: 'buy' | 'sell' | 'tip') => {
+  try {
+    const audio = new Audio(type === 'buy' ? '/buy.mp3' : type === 'sell' ? '/sell.mp3' : '/tip.mp3');
+    audio.volume = 0.5;
+    audio.play().catch(() => {});
+  } catch (e) {}
+};
 
-            if (balance > 0n) held.push(tokenData);
-            if (localFavs.includes(tokenAddr)) favs.push(tokenData);
-          }
-        } catch (e) {}
-      }
-      setHeldTokens(held);
-      setFavTokens(favs);
-      setLoading(false);
+const CustomCandle = (props: any) => {
+  const { x, y, width, height, fill } = props;
+  return <rect x={x} y={y} width={width} height={Math.max(height, 2)} fill={fill} rx={2} />;
+};
+
+// --- ALT BİLEŞENLER ---
+
+const ChatBox = ({ tokenAddress }: { tokenAddress: string }) => {
+    const [msgs, setMsgs] = useState<any[]>([]);
+    const [input, setInput] = useState("");
+
+    useEffect(() => {
+        const saved = localStorage.getItem(`chat_${tokenAddress}`);
+        if(saved) setMsgs(JSON.parse(saved));
+    }, [tokenAddress]);
+
+    const sendMsg = () => {
+        if(!input.trim()) return;
+        const newMsg = { user: "You", text: input, time: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) };
+        const updated = [...msgs, newMsg];
+        setMsgs(updated);
+        localStorage.setItem(`chat_${tokenAddress}`, JSON.stringify(updated));
+        setInput("");
     };
 
-    if (isConnected) fetchData();
-  }, [allTokens, address, isConnected, publicClient]);
+    return (
+        <div className="flex flex-col h-[300px]">
+            <div className="flex-1 overflow-y-auto space-y-3 mb-3 pr-2 scrollbar-thin scrollbar-thumb-white/10">
+                {msgs.length === 0 && <div className="text-center text-gray-500 text-xs mt-10">No messages yet. Start the hype! 🔥</div>}
+                {msgs.map((m, i) => (
+                    <div key={i} className="bg-white/5 p-2 rounded-lg border border-white/5">
+                        <div className="flex justify-between items-center mb-1">
+                            <span className="text-[#FDDC11] text-xs font-bold">{m.user}</span>
+                            <span className="text-[9px] text-gray-500">{m.time}</span>
+                        </div>
+                        <p className="text-xs text-gray-300 break-words">{m.text}</p>
+                    </div>
+                ))}
+            </div>
+            <div className="flex gap-2">
+                <input type="text" value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==='Enter' && sendMsg()} placeholder="Type something..." className="flex-1 bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-[#FDDC11]" />
+                <button onClick={sendMsg} className="bg-[#FDDC11] text-black p-2 rounded-lg hover:bg-[#ffe55c]"><Send size={14}/></button>
+            </div>
+        </div>
+    );
+};
 
-  if (!isConnected) return (
-    <div style={{ backgroundColor: '#0a0e27', color: '#fff', minHeight: '100vh', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', position: 'relative', overflow: 'hidden', backgroundImage: 'radial-gradient(circle at 50% 0%, #1e1b4b 0%, #0a0e27 60%)' }}>
-      <Toaster position="top-right" />
-      <div style={{ position: 'fixed', top: '-20%', right: '-10%', width: '600px', height: '600px', background: 'radial-gradient(circle, rgba(253,220,17,0.08) 0%, transparent 70%)', filter: 'blur(80px)', zIndex: 0 }} />
-      <div style={{ position: 'fixed', bottom: '-20%', left: '-10%', width: '600px', height: '600px', background: 'radial-gradient(circle, rgba(147,51,234,0.08) 0%, transparent 70%)', filter: 'blur(80px)', zIndex: 0 }} />
+const MemeGenerator = ({ tokenImage, symbol }: { tokenImage: string, symbol: string }) => {
+    const [topText, setTopText] = useState("");
+    const [bottomText, setBottomText] = useState("");
+    const canvasRef = useRef<HTMLCanvasElement>(null);
+
+    useEffect(() => {
+        const canvas = canvasRef.current;
+        if(!canvas) return;
+        const ctx = canvas.getContext("2d");
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        img.src = tokenImage;
+        img.onload = () => {
+            if(!ctx) return;
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            ctx.font = "bold 40px Impact";
+            ctx.fillStyle = "white";
+            ctx.strokeStyle = "black";
+            ctx.lineWidth = 2;
+            ctx.textAlign = "center";
+            ctx.fillText(topText.toUpperCase(), canvas.width/2, 50);
+            ctx.strokeText(topText.toUpperCase(), canvas.width/2, 50);
+            ctx.fillText(bottomText.toUpperCase(), canvas.width/2, canvas.height - 20);
+            ctx.strokeText(bottomText.toUpperCase(), canvas.width/2, canvas.height - 20);
+        };
+    }, [topText, bottomText, tokenImage]);
+
+    const downloadMeme = () => {
+        const link = document.createElement('a');
+        link.download = `${symbol}-meme.png`;
+        link.href = canvasRef.current?.toDataURL() || "";
+        link.click();
+        toast.success("Meme Downloaded! 🎨");
+    };
+
+    return (
+        <div className="flex flex-col gap-4 p-4 bg-black/20 rounded-xl">
+            <canvas ref={canvasRef} width={400} height={400} className="w-full rounded-lg border border-white/10" />
+            <div className="flex gap-2">
+                <input type="text" placeholder="Top Text" className="flex-1 bg-white/5 border border-white/10 rounded px-2 py-1 text-sm outline-none" value={topText} onChange={e=>setTopText(e.target.value)} />
+                <input type="text" placeholder="Bottom Text" className="flex-1 bg-white/5 border border-white/10 rounded px-2 py-1 text-sm outline-none" value={bottomText} onChange={e=>setBottomText(e.target.value)} />
+            </div>
+            <button onClick={downloadMeme} className="w-full bg-[#FDDC11] text-black font-bold py-2 rounded-lg flex items-center justify-center gap-2 hover:bg-[#ffe55c] transition-colors"><Download size={16}/> Download Meme</button>
+        </div>
+    );
+};
+
+// --- MAIN PAGE ---
+
+type PageProps = { params: Promise<{ id: string }>; };
+
+export default function TradePage(props: PageProps) {
+  const params = use(props.params);
+  const id = params.id;
+  const tokenAddress = id as `0x${string}`;
+  const publicClient = usePublicClient(); 
+  const { isConnected, address } = useAccount();
+
+  // STATES
+  const [activeTab, setActiveTab] = useState<"buy" | "sell">("buy");
+  const [bottomTab, setBottomTab] = useState<"trades" | "chat" | "holders" | "meme">("trades");
+  const [amount, setAmount] = useState("");
+  const [slippage, setSlippage] = useState(1);
+  const [showConfetti, setShowConfetti] = useState(false);
+  const [isShaking, setIsShaking] = useState(false); // SHAKE STATE
+  const [showSettings, setShowSettings] = useState(false);
+  
+  // Data States
+  const [chartData, setChartData] = useState<any[]>([]);
+  const [tradeHistory, setTradeHistory] = useState<any[]>([]);
+  const [holderList, setHolderList] = useState<any[]>([]);
+  const [pieData, setPieData] = useState<any[]>([]);
+  const processedTxHashes = useRef(new Set());
+
+  // Contract Reads
+  const { data: maticBalance, refetch: refetchMatic } = useBalance({ address: address });
+  const { data: userTokenBalance, refetch: refetchTokenBalance } = useReadContract({ address: tokenAddress, abi: erc20Abi, functionName: "balanceOf", args: [address as `0x${string}`], query: { enabled: !!address } });
+  const { data: salesData, refetch: refetchSales } = useReadContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "sales", args: [tokenAddress] });
+  const { data: name } = useReadContract({ address: tokenAddress, abi: [{ name: "name", type: "function", inputs: [], outputs: [{ type: "string" }], stateMutability: "view" }], functionName: "name" });
+  const { data: symbol } = useReadContract({ address: tokenAddress, abi: [{ name: "symbol", type: "function", inputs: [], outputs: [{ type: "string" }], stateMutability: "view" }], functionName: "symbol" });
+  const { data: metadata } = useReadContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "tokenMetadata", args: [tokenAddress] });
+
+  const collateral = salesData ? formatEther(salesData[1] as bigint) : "0";
+  const tokensSold = salesData ? (salesData[3] as bigint) : 0n;
+  const creatorAddress = salesData ? salesData[0] : "";
+  const progress = Number((tokensSold * 100n) / 1000000000000000000000000000n);
+  const realProgress = Math.min(progress, 100);
+  const migrationProgress = Math.min((parseFloat(collateral) / 3000) * 100, 100);
+  const currentPrice = chartData.length > 0 ? chartData[chartData.length - 1].price : 0.000001;
+  const marketCap = currentPrice * 1_000_000_000;
+
+  const image = metadata ? metadata[4] : "";
+  const tokenImage = getTokenImage(tokenAddress, image);
+
+  const { sendTransaction } = useSendTransaction();
+  const handleTip = async () => {
+      if(!creatorAddress) return;
+      try {
+          await sendTransaction({ to: creatorAddress, value: parseEther("1") });
+          toast.success("Tip sent! 💸");
+          playSound('tip');
+      } catch(e) { toast.error("Tip failed"); }
+  };
+
+  const fetchHistory = async () => {
+    if (!publicClient) return;
+    try {
+      const [buyLogs, sellLogs] = await Promise.all([
+        publicClient.getContractEvents({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, eventName: 'Buy', fromBlock: 'earliest' }),
+        publicClient.getContractEvents({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, eventName: 'Sell', fromBlock: 'earliest' })
+      ]);
+
+      const relevantBuys = buyLogs.filter((l: any) => l.args.token.toLowerCase() === tokenAddress.toLowerCase());
+      const relevantSells = sellLogs.filter((l: any) => l.args.token.toLowerCase() === tokenAddress.toLowerCase());
+      const allEvents = [...relevantBuys.map(l => ({ ...l, type: "BUY" })), ...relevantSells.map(l => ({ ...l, type: "SELL" }))].sort((a, b) => Number(a.blockNumber) - Number(b.blockNumber) || a.logIndex - b.logIndex);
+
+      const balances: Record<string, bigint> = {};
+      relevantBuys.forEach((l:any) => { balances[l.args.buyer] = (balances[l.args.buyer] || 0n) + (l.args.amountTokens || 0n); });
+      relevantSells.forEach((l:any) => { balances[l.args.seller] = (balances[l.args.seller] || 0n) - (l.args.amountTokens || 0n); });
       
-      <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '24px', position: 'relative', zIndex: 10 }}>
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} style={{ textAlign: 'center' }}>
-          <div style={{ width: '80px', height: '80px', margin: '0 auto 24px', borderRadius: '20px', background: 'linear-gradient(135deg, #FDDC11, #9333ea)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 0 30px rgba(253, 220, 17, 0.4)' }}>
-            <Wallet size={40} style={{ color: '#000' }} />
-          </div>
-          <h1 style={{ fontSize: '40px', fontWeight: '900', marginBottom: '8px' }}>Connect Your Wallet</h1>
-          <p style={{ fontSize: '16px', color: '#94a3b8', marginBottom: '32px' }}>Start trading tokens on Polygon</p>
-          <div style={{ transform: 'scale(1.1)' }}>
-            <ConnectButton />
-          </div>
-        </motion.div>
-        
-        <Link href="/" style={{ marginTop: '40px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', color: '#64748b', textDecoration: 'none', transition: 'color 0.3s' }}>
-          <ArrowLeft size={16} />
-          Back to Home
-        </Link>
-      </div>
-    </div>
-  );
+      const sortedHolders = Object.entries(balances)
+        .filter(([_, bal]) => bal > 10n)
+        .sort(([, a], [, b]) => (b > a ? 1 : -1))
+        .map(([addr, bal]) => ({ address: addr, balance: bal, percentage: (Number(bal) * 100) / 1_000_000_000 / 10**18 }));
+      setHolderList(sortedHolders);
 
-  // Toplam Portföy Değeri Hesaplama
-  const totalValue = heldTokens.reduce((sum, t) => sum + parseFloat(t.collateral) * 3200, 0);
+      const top5 = sortedHolders.slice(0, 5);
+      const others = sortedHolders.slice(5).reduce((acc, curr) => acc + curr.percentage, 0);
+      const pData = top5.map((h, i) => ({ name: `${h.address.slice(0,4)}`, value: h.percentage, fill: ['#FDDC11', '#fbbf24', '#f59e0b', '#d97706', '#b45309'][i] }));
+      if (others > 0) pData.push({ name: 'Others', value: others, fill: '#374151' });
+      setPieData(pData);
+
+      const newChartData: any[] = [];
+      const newTrades: any[] = [];
+      let lastPrice = 0.0000001;
+
+      allEvents.forEach((event: any) => {
+        if (processedTxHashes.current.has(event.transactionHash)) return;
+        processedTxHashes.current.add(event.transactionHash);
+
+        const maticVal = parseFloat(formatEther(event.args.amountMATIC || 0n));
+        const tokenVal = parseFloat(formatEther(event.args.amountTokens || 0n));
+        let executionPrice = tokenVal > 0 ? maticVal / tokenVal : lastPrice;
+        
+        newTrades.unshift({
+          user: event.args.buyer || event.args.seller,
+          type: event.type,
+          maticAmount: maticVal.toFixed(4),
+          tokenAmount: tokenVal,
+          price: executionPrice.toFixed(8),
+          time: `Blk ${event.blockNumber}`
+        });
+        newChartData.push({ name: event.blockNumber.toString(), price: executionPrice, isUp: event.type === "BUY", fill: event.type === "BUY" ? '#10b981' : '#ef4444' });
+        lastPrice = executionPrice;
+      });
+
+      if (newChartData.length > 0) setChartData(newChartData);
+      if (newTrades.length > 0) setTradeHistory(newTrades);
+      
+    } catch (e) { console.error("History Error:", e); }
+  };
+
+  useEffect(() => {
+    fetchHistory();
+    const interval = setInterval(fetchHistory, 5000);
+    return () => clearInterval(interval);
+  }, [tokenAddress, publicClient]);
+
+  useWatchContractEvent({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, eventName: 'Buy', onLogs(logs: any) { processLiveLog(logs[0], "BUY"); } });
+  useWatchContractEvent({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, eventName: 'Sell', onLogs(logs: any) { processLiveLog(logs[0], "SELL"); } });
+
+  const processLiveLog = (log: any, type: "BUY" | "SELL") => {
+    if(log.args.token.toLowerCase() !== tokenAddress.toLowerCase()) return;
+    if(processedTxHashes.current.has(log.transactionHash)) return;
+    processedTxHashes.current.add(log.transactionHash);
+
+    const maticVal = parseFloat(formatEther(log.args.amountMATIC || 0n));
+    const tokenVal = parseFloat(formatEther(log.args.amountTokens || 0n));
+    const executionPrice = tokenVal > 0 ? maticVal / tokenVal : (chartData.length > 0 ? chartData[chartData.length-1].price : 0);
+    
+    // SES & SALLANTI
+    playSound(type === "BUY" ? 'buy' : 'sell');
+    if (type === "BUY") { setIsShaking(true); setTimeout(() => setIsShaking(false), 1000); }
+
+    setChartData(prev => [...prev, { name: "New", price: executionPrice, isUp: type === "BUY", fill: type === "BUY" ? '#10b981' : '#ef4444' }]);
+    setTradeHistory(prev => [{ user: type === "BUY" ? log.args.buyer : log.args.seller, type: type, maticAmount: maticVal.toFixed(4), tokenAmount: tokenVal, price: executionPrice.toFixed(8), time: "Just now" }, ...prev]);
+    
+    refetchSales(); refetchTokenBalance(); refetchMatic();
+  };
+
+  const { data: hash, isPending, writeContract } = useWriteContract();
+  const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({ hash });
+
+  const handleTx = () => {
+    if (!amount) { toast.error("Enter amount"); return; }
+    try {
+      const val = parseEther(amount);
+      if (activeTab === "buy") writeContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "buy", args: [tokenAddress], value: val });
+      else writeContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "sell", args: [tokenAddress, val] });
+      toast.loading("Confirming...", { id: 'tx' });
+    } catch(e) { toast.error("Failed"); toast.dismiss('tx'); }
+  };
+
+  useEffect(() => { 
+    if (isConfirmed) { 
+        toast.dismiss('tx'); toast.success("Success!"); 
+        
+        const val = parseFloat(amount);
+        const estPrice = currentPrice > 0 ? currentPrice : 0.000001;
+        const estTokens = activeTab === "buy" ? val / estPrice : val;
+        const estMatic = activeTab === "buy" ? val : val * estPrice;
+        const newTrade = { user: address || "You", type: activeTab === "buy" ? "BUY" : "SELL", maticAmount: estMatic.toFixed(4), tokenAmount: BigInt(Math.floor(estTokens * 10**18)), price: estPrice.toFixed(8), time: "Just now" };
+        
+        setTradeHistory(prev => [newTrade, ...prev]);
+        setChartData(prev => [...prev, { name: "New", price: estPrice, isUp: activeTab === "buy", fill: activeTab === "buy" ? '#10b981' : '#ef4444' }]);
+        
+        if(activeTab === "buy") { 
+            setShowConfetti(true); 
+            setIsShaking(true);
+            setTimeout(() => { setShowConfetti(false); setIsShaking(false); }, 5000); 
+            playSound('buy'); 
+        } else { playSound('sell'); }
+        
+        setAmount(""); refetchSales(); refetchTokenBalance(); refetchMatic(); setTimeout(fetchHistory, 2000);
+    } 
+  }, [isConfirmed]);
+
+  const handlePercentage = (percent: number) => {
+    if(activeTab === "buy") {
+        const bal = maticBalance ? parseFloat(maticBalance.formatted) : 0;
+        const max = bal - 0.02; 
+        if(max > 0) setAmount((max * (percent/100)).toFixed(4));
+    } else {
+        const bal = userTokenBalance ? parseFloat(formatEther(userTokenBalance as bigint)) : 0;
+        setAmount((bal * (percent/100)).toFixed(2));
+    }
+  };
 
   return (
-    <div style={{ backgroundColor: '#0a0e27', color: '#fff', minHeight: '100vh', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', position: 'relative', overflow: 'hidden', backgroundImage: 'radial-gradient(circle at 50% 0%, #1e1b4b 0%, #0a0e27 60%)' }}>
-      <Toaster position="top-right" toastOptions={{ style: { background: '#1F2128', color: '#fff', border: '1px solid #333' } }} />
+    <div className={`min-h-screen bg-[#0a0e27] text-white font-sans selection:bg-[#FDDC11] selection:text-black ${isShaking ? "shake-screen" : ""}`}>
+      <style>{shakeStyle}</style>
+      <Toaster position="top-right" toastOptions={{ style: { background: '#181a20', color: '#fff', border: '1px solid #333' } }} />
+      {showConfetti && <Confetti width={window.innerWidth} height={window.innerHeight} recycle={false} numberOfPieces={200} />}
       
-      <div style={{ position: 'fixed', top: '-20%', right: '-10%', width: '600px', height: '600px', background: 'radial-gradient(circle, rgba(253,220,17,0.08) 0%, transparent 70%)', filter: 'blur(80px)', zIndex: 0 }} />
-      <div style={{ position: 'fixed', bottom: '-20%', left: '-10%', width: '600px', height: '600px', background: 'radial-gradient(circle, rgba(147,51,234,0.08) 0%, transparent 70%)', filter: 'blur(80px)', zIndex: 0 }} />
-
-      <header style={{ position: 'sticky', top: 0, zIndex: 40, backgroundColor: 'rgba(10, 14, 39, 0.8)', backdropFilter: 'blur(12px)', borderBottom: '1px solid rgba(255, 255, 255, 0.05)', padding: '16px 0' }}>
-        <div style={{ maxWidth: '1280px', margin: '0 auto', padding: '0 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#94a3b8', textDecoration: 'none', cursor: 'pointer', transition: 'color 0.3s' }}>
-            <ArrowLeft size={18} />
-            <span style={{ fontSize: '14px', fontWeight: '600' }}>Back to Board</span>
-          </Link>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div style={{ transform: 'scale(0.9)' }}>
-              <ConnectButton showBalance={false} accountStatus="avatar" chainStatus="none" />
-            </div>
-          </div>
+      <header className="sticky top-0 z-40 bg-[#1a0e2e]/90 backdrop-blur-md border-b border-white/5 p-3 flex justify-between">
+        <Link href="/" className="flex items-center gap-2 text-gray-400 hover:text-white"><ArrowLeft size={18} /> Board</Link>
+        <div className="flex gap-2">
+            <button onClick={handleTip} className="flex items-center gap-1 bg-yellow-500/20 text-yellow-500 px-3 py-1 rounded-full text-xs font-bold hover:bg-yellow-500/30"><Gift size={12}/> Tip Creator</button>
+            <ConnectButton showBalance={false} accountStatus="avatar" chainStatus="none" />
         </div>
       </header>
 
-      <main style={{ maxWidth: '1280px', margin: '0 auto', padding: '40px 20px', position: 'relative', zIndex: 10 }}>
+      <main className="max-w-[1400px] mx-auto px-4 py-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
         
-        {/* Profile Header */}
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} style={{ borderRadius: '24px', border: '1px solid rgba(253, 220, 17, 0.15)', background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.5), rgba(15, 23, 42, 0.7))', backdropFilter: 'blur(20px)', padding: '32px', marginBottom: '32px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '24px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '20px', flex: 1 }}>
-              <div style={{ width: '100px', height: '100px', borderRadius: '20px', background: 'linear-gradient(135deg, #FDDC11, #9333ea)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 0 30px rgba(253, 220, 17, 0.3)', flexShrink: 0 }}>
-                <Wallet size={50} style={{ color: '#000' }} />
-              </div>
-              <div style={{ flex: 1 }}>
-                <h1 style={{ fontSize: '32px', fontWeight: '900', margin: '0 0 8px 0' }}>My Portfolio</h1>
-                <p style={{ fontSize: '14px', color: '#94a3b8', margin: '0 0 12px 0' }}>Track your holdings and watchlist</p>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', backgroundColor: 'rgba(253, 220, 17, 0.1)', borderRadius: '8px', border: '1px solid rgba(253, 220, 17, 0.2)', width: 'fit-content', cursor: 'pointer' }} onClick={() => { navigator.clipboard.writeText(address || ''); toast.success("Copied!"); }}>
-                  <span style={{ fontSize: '12px', fontFamily: 'monospace', color: '#FDDC11', fontWeight: '700' }}>{address?.slice(0, 6)}...{address?.slice(-4)}</span>
-                  <Copy size={12} style={{ color: '#FDDC11' }} />
+        {/* SOL KOLON */}
+        <div className="lg:col-span-8 flex flex-col gap-6">
+            <div className="flex items-start gap-4">
+                <div className="w-16 h-16 bg-[#2d1b4e] rounded-xl border border-white/10 overflow-hidden shadow-lg"><MediaRenderer src={tokenImage} className="w-full h-full object-cover"/></div>
+                <div className="flex-1">
+                    <div className="flex items-center gap-3"><h1 className="text-2xl font-bold text-white">{name?.toString() || "Loading..."}</h1><span className="text-sm font-bold text-gray-400">[{symbol?.toString() || "TKN"}]</span></div>
+                    {desc && <p className="text-sm text-gray-400 mt-2 line-clamp-2">{desc}</p>}
+                    <div className="flex gap-2 mt-2">
+                        {twitter && <a href={twitter} target="_blank" className="p-2 bg-[#2d1b4e] rounded hover:text-[#FDDC11]"><Twitter size={14}/></a>}
+                        {telegram && <a href={telegram} target="_blank" className="p-2 bg-[#2d1b4e] rounded hover:text-[#FDDC11]"><Send size={14}/></a>}
+                        {web && <a href={web} target="_blank" className="p-2 bg-[#2d1b4e] rounded hover:text-[#FDDC11]"><Globe size={14}/></a>}
+                    </div>
                 </div>
-              </div>
             </div>
-          </div>
 
-          {/* Stats */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '20px', marginTop: '32px', paddingTop: '32px', borderTop: '1px solid rgba(255, 255, 255, 0.05)' }}>
-            <div>
-              <div style={{ fontSize: '12px', color: '#94a3b8', fontWeight: '600', marginBottom: '8px' }}>Total Portfolio Value</div>
-              <div style={{ fontSize: '28px', fontWeight: '900', color: '#FDDC11' }}>${totalValue.toLocaleString('en-US', { maximumFractionDigits: 0 })}</div>
+            <div className="bg-[#2d1b4e]/50 border border-white/5 rounded-2xl p-5 h-[450px] shadow-xl">
+                <div className="flex justify-between items-center mb-4"><div className="flex gap-4"><div className="text-lg font-bold text-white">{currentPrice.toFixed(6)} MATIC</div><div className="text-lg font-bold text-[#FDDC11]">MC: {(marketCap).toLocaleString()} MATIC</div></div></div>
+                <ResponsiveContainer width="100%" height="90%">
+                    <ComposedChart data={chartData}>
+                        <YAxis domain={['auto', 'auto']} hide />
+                        <Tooltip contentStyle={{ backgroundColor: '#181a20', border: '1px solid #333' }} />
+                        <Bar dataKey="price" shape={<CustomCandle />} isAnimationActive={false}>
+                            {chartData.map((entry, index) => (<Cell key={`cell-${index}`} fill={entry.fill} />))}
+                        </Bar>
+                    </ComposedChart>
+                </ResponsiveContainer>
             </div>
-            <div>
-              <div style={{ fontSize: '12px', color: '#94a3b8', fontWeight: '600', marginBottom: '8px' }}>Tokens Held</div>
-              <div style={{ fontSize: '28px', fontWeight: '900' }}>{heldTokens.length}</div>
+
+            <div className="flex flex-col gap-4">
+                <div className="flex gap-1 bg-[#2d1b4e] p-1 rounded-lg border border-white/5 w-fit">
+                    {["trades", "holders", "chat", "meme"].map(tab => (
+                        <button key={tab} onClick={() => setBottomTab(tab as any)} className={`px-4 py-1.5 rounded-md text-xs font-bold capitalize transition-all ${bottomTab === tab ? "bg-[#3e2465] text-white" : "text-gray-500 hover:text-white"}`}>{tab}</button>
+                    ))}
+                </div>
+                <div className="bg-[#2d1b4e]/50 border border-white/5 rounded-2xl p-4 min-h-[300px]">
+                    {bottomTab === "trades" && (
+                        <div className="flex flex-col gap-1">
+                            <div className="grid grid-cols-5 text-[10px] font-bold text-gray-500 uppercase px-3 pb-2"><div>User</div><div>Type</div><div>MATIC</div><div>Tokens</div><div className="text-right">Price</div></div>
+                            {tradeHistory.map((trade, i) => (
+                                <div key={i} className={`grid grid-cols-5 text-xs py-3 px-3 rounded-lg border-b border-white/5 ${trade.user.toLowerCase() === creatorAddress?.toLowerCase() ? 'bg-purple-900/30 border-purple-500/50 animate-pulse' : 'hover:bg-white/5'}`}>
+                                    <div className="font-mono text-gray-400 flex items-center gap-1">{trade.user.slice(0,6)}... {trade.user.toLowerCase() === creatorAddress?.toLowerCase() && <span className="bg-purple-500 text-white text-[8px] px-1 rounded">DEV</span>}</div>
+                                    <div className={trade.type==="BUY"?"text-green-500 font-bold":"text-red-500 font-bold"}>{trade.type}</div>
+                                    <div className="text-white">{trade.maticAmount}</div>
+                                    <div className="text-white">{formatTokenAmount(trade.tokenAmount)}</div>
+                                    <div className="text-right text-gray-500">{trade.price}</div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                    {bottomTab === "holders" && (
+                        <div className="flex gap-6">
+                            <div className="w-1/3 h-[200px]"><ResponsiveContainer><PieChart><Pie data={pieData} cx="50%" cy="50%" innerRadius={40} outerRadius={60} dataKey="value">{pieData.map((e,i)=><Cell key={i} fill={e.fill}/>)}</Pie></PieChart></ResponsiveContainer></div>
+                            <div className="w-2/3 flex flex-col gap-2">{holderList.map((h,i)=>(<div key={i} className="flex justify-between text-xs border-b border-white/5 pb-1"><span className="font-mono text-gray-400">{h.address.slice(0,6)}... {h.address.toLowerCase() === creatorAddress?.toLowerCase() && "(DEV)"}</span><span className="text-white">{h.percentage.toFixed(2)}%</span></div>))}</div>
+                        </div>
+                    )}
+                    {bottomTab === "chat" && <ChatBox tokenAddress={tokenAddress} />}
+                    {bottomTab === "meme" && <MemeGenerator tokenImage={tokenImage} symbol={symbol?.toString() || "TKN"} />}
+                </div>
             </div>
-            <div>
-              <div style={{ fontSize: '12px', color: '#94a3b8', fontWeight: '600', marginBottom: '8px' }}>Watchlist</div>
-              <div style={{ fontSize: '28px', fontWeight: '900' }}>{favTokens.length}</div>
+        </div>
+
+        {/* SAĞ KOLON */}
+        <div className="lg:col-span-4 space-y-6">
+            <div className="bg-[#2d1b4e] border border-white/10 rounded-2xl p-5 sticky top-24">
+                <div className="grid grid-cols-2 gap-3 mb-6">
+                    <button onClick={() => setActiveTab("buy")} className={`py-3 rounded-xl font-black ${activeTab==="buy"?"bg-green-500 text-white":"bg-white/5 text-gray-400"}`}>Buy</button>
+                    <button onClick={() => setActiveTab("sell")} className={`py-3 rounded-xl font-black ${activeTab==="sell"?"bg-red-500 text-white":"bg-white/5 text-gray-400"}`}>Sell</button>
+                </div>
+
+                <div className="bg-[#1a0e2e] rounded-xl p-4 mb-4 border border-white/5">
+                    <div className="flex justify-between text-xs text-gray-400 mb-2"><span>Amount</span><span>Bal: {activeTab==="buy" ? `${maticBalance?.formatted?.slice(0,5)} MATIC` : `${parseFloat(formatEther(userTokenBalance as bigint)).toFixed(2)} ${symbol}`}</span></div>
+                    <input type="number" placeholder="0.0" value={amount} onChange={(e) => setAmount(e.target.value)} className="w-full bg-transparent text-2xl font-black text-white outline-none" />
+                </div>
+
+                <div className="grid grid-cols-4 gap-2 mb-4">
+                    {[10, 25, 50, 100].map(p => (
+                        <button key={p} onClick={() => handlePercentage(p)} className="py-2 rounded-lg bg-white/5 hover:bg-white/10 text-xs font-bold">{p === 100 ? "MAX" : `${p}%`}</button>
+                    ))}
+                    {activeTab === "buy" && <button onClick={() => setAmount("5")} className="py-2 rounded-lg bg-white/5 hover:bg-white/10 text-xs font-bold">5M</button>}
+                </div>
+
+                <div className="flex justify-end gap-2 items-center mb-4">
+                    <span className="text-xs text-gray-500">Slippage:</span>
+                    <select value={slippage} onChange={e=>setSlippage(Number(e.target.value))} className="bg-transparent text-[#FDDC11] text-xs font-bold outline-none"><option value={1}>1%</option><option value={5}>5%</option><option value={10}>10%</option></select>
+                </div>
+
+                <button onClick={handleTx} disabled={isPending || isConfirming} className={`w-full py-4 rounded-xl font-black ${activeTab==="buy"?"bg-green-500 hover:bg-green-600":"bg-red-500 hover:bg-red-600"} text-white transition-all`}>
+                    {isPending ? "Processing..." : isConfirming ? "Confirming..." : activeTab === "buy" ? "PLACE BUY ORDER" : "PLACE SELL ORDER"}
+                </button>
             </div>
-          </div>
-        </motion.div>
 
-        {/* Tabs */}
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} style={{ marginBottom: '32px', display: 'flex', gap: '12px', borderBottom: '1px solid rgba(255, 255, 255, 0.05)', paddingBottom: '16px' }}>
-          <button onClick={() => setActiveTab("held")} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 20px', borderRadius: '12px', fontWeight: '700', fontSize: '14px', border: 'none', backgroundColor: activeTab === "held" ? 'rgba(253, 220, 17, 0.2)' : 'transparent', color: activeTab === "held" ? '#FDDC11' : '#94a3b8', cursor: 'pointer', transition: 'all 0.3s', borderBottom: activeTab === "held" ? '2px solid #FDDC11' : 'none' }}>
-            <Coins size={16} /> Holdings ({heldTokens.length})
-          </button>
-          <button onClick={() => setActiveTab("favorites")} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 20px', borderRadius: '12px', fontWeight: '700', fontSize: '14px', border: 'none', backgroundColor: activeTab === "favorites" ? 'rgba(253, 220, 17, 0.2)' : 'transparent', color: activeTab === "favorites" ? '#FDDC11' : '#94a3b8', cursor: 'pointer', transition: 'all 0.3s', borderBottom: activeTab === "favorites" ? '2px solid #FDDC11' : 'none' }}>
-            <Star size={16} /> Watchlist ({favTokens.length})
-          </button>
-        </motion.div>
-
-        {/* Token Grid */}
-        {loading ? (
-          <div style={{ textAlign: 'center', padding: '80px 20px', color: '#64748b', fontSize: '16px' }}>
-            <motion.div animate={{ opacity: [0.5, 1, 0.5] }} transition={{ duration: 2, repeat: Infinity }} style={{ display: 'inline-block' }}>
-              Loading your data...
-            </motion.div>
-          </div>
-        ) : (activeTab === "held" ? heldTokens : favTokens).length === 0 ? (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ textAlign: 'center', padding: '80px 20px', borderRadius: '20px', border: '1px dashed rgba(253, 220, 17, 0.2)', backgroundColor: 'rgba(253, 220, 17, 0.05)' }}>
-            <Star size={48} style={{ color: '#64748b', margin: '0 auto 16px', opacity: 0.5 }} />
-            <p style={{ fontSize: '16px', color: '#64748b', margin: 0 }}>
-              {activeTab === "held" ? "You don't hold any tokens yet" : "Your watchlist is empty"}
-            </p>
-          </motion.div>
-        ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '20px' }}>
-            {(activeTab === "held" ? heldTokens : favTokens).map((token: any, idx) => (
-              <Link href={`/trade/${token.address}`} key={token.address} style={{ textDecoration: 'none' }}>
-                <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: idx * 0.05 }} whileHover={{ y: -8, borderColor: 'rgba(253, 220, 17, 0.5)' }} style={{ borderRadius: '16px', border: '1px solid rgba(253, 220, 17, 0.15)', background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.4), rgba(15, 23, 42, 0.6))', backdropFilter: 'blur(10px)', padding: '20px', cursor: 'pointer', transition: 'all 0.3s', height: '100%', display: 'flex', flexDirection: 'column' }}>
-                  
-                  {/* Header */}
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                      <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: 'linear-gradient(135deg, #FDDC11, #9333ea)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '20px', fontWeight: '900', color: '#000' }}>
-                        {token.symbol[0]}
-                      </div>
-                      <div>
-                        <div style={{ fontSize: '16px', fontWeight: '900', margin: 0 }}>{token.name}</div>
-                        <div style={{ fontSize: '12px', color: '#FDDC11', fontWeight: '700', margin: 0 }}>{token.symbol}</div>
-                      </div>
-                    </div>
-                    {token.isFav && <Star size={20} style={{ color: '#FDDC11', fill: '#FDDC11' }} />}
-                  </div>
-
-                  {/* Balance */}
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: '12px', color: '#94a3b8', fontWeight: '600', marginBottom: '4px' }}>Balance</div>
-                    <div style={{ fontSize: '24px', fontWeight: '900', marginBottom: '16px' }}>
-                      {parseFloat(token.balance) > 0.01 ? parseFloat(token.balance).toFixed(2) : parseFloat(token.balance).toFixed(6)}
-                    </div>
-                  </div>
-
-                  {/* Footer Stats */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '16px', borderTop: '1px solid rgba(255, 255, 255, 0.05)' }}>
-                    <div>
-                      <div style={{ fontSize: '11px', color: '#64748b', fontWeight: '600' }}>MARKET CAP</div>
-                      <div style={{ fontSize: '14px', fontWeight: '900', color: '#10b981' }}>
-                        ${(parseFloat(token.collateral) * 3200).toLocaleString('en-US', { maximumFractionDigits: 0 })}
-                      </div>
-                    </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: '11px', color: '#64748b', fontWeight: '600' }}>YOUR SHARE</div>
-                      <div style={{ fontSize: '14px', fontWeight: '900', color: '#FDDC11' }}>
-                        {((parseFloat(token.balance) / 1000000000) * 100).toFixed(2)}%
-                      </div>
-                    </div>
-                  </div>
-                </motion.div>
-              </Link>
-            ))}
-          </div>
-        )}
+            <div className="bg-[#2d1b4e]/50 border border-white/5 rounded-xl p-4 space-y-4">
+                <div>
+                    <div className="flex justify-between text-xs mb-1"><span className="text-gray-400">Bonding Curve</span><span className="text-white">{realProgress.toFixed(1)}%</span></div>
+                    <div className="h-2 bg-white/10 rounded-full overflow-hidden"><div className="h-full bg-gradient-to-r from-yellow-400 to-orange-500 transition-all duration-500" style={{ width: `${realProgress}%` }} /></div>
+                </div>
+                <div>
+                    <div className="flex justify-between text-xs mb-1"><span className="text-gray-400">Dex Graduation</span><span className="text-green-400">{migrationProgress.toFixed(1)}%</span></div>
+                    <div className="h-2 bg-white/10 rounded-full overflow-hidden"><div className="h-full bg-gradient-to-r from-green-400 to-emerald-600 transition-all duration-500" style={{ width: `${migrationProgress}%` }} /></div>
+                </div>
+                <div className="flex justify-between text-xs"><span className="text-gray-500">Holders</span><span className="text-white font-bold">{holderList.length}</span></div>
+                <div className="flex justify-between text-xs"><span className="text-gray-500">Market Cap</span><span className="text-white font-bold">{marketCap.toLocaleString()} MATIC</span></div>
+            </div>
+        </div>
       </main>
     </div>
   );
