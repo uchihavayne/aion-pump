@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, use } from "react";
+import { useState, useEffect, useRef } from "react";
 import { 
   ArrowLeft, Twitter, Globe, Send, Copy, TrendingUp, MessageSquare, 
   User, ExternalLink, Coins, Users, Settings, Share2, Star, 
@@ -11,14 +11,13 @@ import { ConnectButton } from "@rainbow-me/rainbowkit";
 import Link from "next/link";
 import { useWriteContract, useWaitForTransactionReceipt, useReadContract, useWatchContractEvent, useAccount, usePublicClient, useBalance, useSendTransaction } from "wagmi"; 
 import { parseEther, formatEther, erc20Abi } from "viem"; 
-// DÜZELTİLEN SATIR BURASI (../../contract):
 import { CONTRACT_ADDRESS, CONTRACT_ABI } from "../../contract"; 
 import { ComposedChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, PieChart, Pie } from 'recharts';
 import toast, { Toaster } from 'react-hot-toast';
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import Confetti from 'react-confetti';
 
-// --- CSS STYLES ---
+// --- STYLES ---
 const styles = `
   @keyframes shake { 0% { transform: translate(1px, 1px) rotate(0deg); } 10% { transform: translate(-1px, -2px) rotate(-1deg); } 20% { transform: translate(-3px, 0px) rotate(1deg); } 30% { transform: translate(3px, 2px) rotate(0deg); } 40% { transform: translate(1px, -1px) rotate(1deg); } 50% { transform: translate(-1px, 2px) rotate(-1deg); } 60% { transform: translate(-3px, 1px) rotate(0deg); } 70% { transform: translate(3px, 1px) rotate(-1deg); } 80% { transform: translate(-1px, -1px) rotate(1deg); } 90% { transform: translate(1px, 2px) rotate(0deg); } 100% { transform: translate(1px, -2px) rotate(-1deg); } }
   .shake-screen { animation: shake 0.5s; animation-iteration-count: 1; }
@@ -28,53 +27,50 @@ const styles = `
   .matrix-mode .bg-white\\/5 { background-color: rgba(0, 255, 65, 0.1) !important; }
 `;
 
-// --- YARDIMCI FONKSİYONLAR ---
-
+// --- HELPERS ---
 const MediaRenderer = ({ src, className }: { src: string, className: string }) => {
+    // Hydration fix: Sadece client'ta render et
+    const [mounted, setMounted] = useState(false);
+    useEffect(() => setMounted(true), []);
+    if (!mounted) return <div className={`${className} bg-gray-800 animate-pulse`} />;
+
     const isVideo = src.includes(".mp4") || src.includes(".webm");
     if (isVideo) return <video src={src} className={className} autoPlay muted loop playsInline />;
     return <img src={src} className={className} alt="token" />;
 };
 
-const ADJECTIVES = ["Crazy", "Degen", "Based", "Diamond", "Savage", "Lucky", "Cyber", "Rocket", "Moon", "Space"];
-const ANIMALS = ["Bull", "Bear", "Ape", "Whale", "Dolphin", "Chad", "Pepe", "Doge", "Shiba", "Cat"];
 const generateNickname = (address: string) => {
     if (!address) return "Anon";
+    const ADJECTIVES = ["Crazy", "Degen", "Based", "Diamond", "Savage", "Lucky"];
+    const ANIMALS = ["Bull", "Bear", "Ape", "Whale", "Dolphin", "Chad"];
     const seed1 = parseInt(address.slice(2, 4), 16) % ADJECTIVES.length;
     const seed2 = parseInt(address.slice(4, 6), 16) % ANIMALS.length;
     return `${ADJECTIVES[seed1]} ${ANIMALS[seed2]}`;
 };
 
 const getAvatarUrl = (address: string) => `https://api.dicebear.com/7.x/pixel-art/svg?seed=${address}`;
-
-const getTokenImage = (address: string, customImage?: string) => 
-  customImage || `https://api.dyneui.com/avatar/abstract?seed=${address}&size=400&background=000000&color=FDDC11&pattern=circuit&variance=0.7`;
-
-const formatTokenAmount = (num: number) => {
-  if (num >= 1000000) return (num / 1000000).toFixed(2) + "M";
-  if (num >= 1000) return (num / 1000).toFixed(2) + "k";
-  return num.toFixed(2);
+const getTokenImage = (address: string, customImage?: string) => customImage || `https://api.dyneui.com/avatar/abstract?seed=${address}&size=400&background=000000&color=FDDC11&pattern=circuit&variance=0.7`;
+const formatTokenAmount = (num: number) => { if (num >= 1000000) return (num / 1000000).toFixed(2) + "M"; if (num >= 1000) return (num / 1000).toFixed(2) + "k"; return num.toFixed(2); };
+const playSound = (type: 'buy' | 'sell' | 'tip' | 'alert') => { 
+    if (typeof window === 'undefined') return;
+    try { const audio = new Audio(type === 'buy' ? '/buy.mp3' : type === 'sell' ? '/sell.mp3' : type === 'tip' ? '/tip.mp3' : '/alert.mp3'); audio.volume = 0.5; audio.play().catch(() => {}); } catch (e) {} 
 };
+const CustomCandle = (props: any) => { const { x, y, width, height, fill } = props; return <rect x={x} y={y} width={width} height={Math.max(height, 2)} fill={fill} rx={2} />; };
 
-const playSound = (type: 'buy' | 'sell' | 'tip' | 'alert') => {
-  try {
-    const audio = new Audio(type === 'buy' ? '/buy.mp3' : type === 'sell' ? '/sell.mp3' : type === 'tip' ? '/tip.mp3' : '/alert.mp3');
-    audio.volume = 0.5;
-    audio.play().catch(() => {});
-  } catch (e) {}
-};
-
-const CustomCandle = (props: any) => {
-  const { x, y, width, height, fill } = props;
-  return <rect x={x} y={y} width={width} height={Math.max(height, 2)} fill={fill} rx={2} />;
-};
-
-// --- ALT BİLEŞENLER ---
+// --- COMPONENTS ---
 
 const PnLCard = ({ balance, price, symbol }: { balance: string, price: number, symbol: string }) => {
     const bal = parseFloat(balance);
     const value = bal * price;
-    const entryPrice = useRef(price * (0.8 + Math.random() * 0.4)).current; 
+    // HYDRATION FIX: Rastgele sayı yerine sabit hesaplama
+    const [entryPrice, setEntryPrice] = useState(0);
+    
+    useEffect(() => {
+        setEntryPrice(price * (0.8 + (price % 0.1))); // Client-side calculation only
+    }, [price]);
+
+    if (entryPrice === 0) return null;
+
     const pnl = (price - entryPrice) * bal;
     const pnlPercent = ((price - entryPrice) / entryPrice) * 100;
 
@@ -83,14 +79,8 @@ const PnLCard = ({ balance, price, symbol }: { balance: string, price: number, s
             <div className="absolute top-0 right-0 p-2 opacity-10 group-hover:opacity-30 transition-opacity"><TrendingUp size={64} /></div>
             <div className="text-[10px] uppercase font-bold text-gray-500 mb-1">Your Position ({symbol})</div>
             <div className="flex justify-between items-end">
-                <div>
-                    <div className="text-2xl font-black text-white">${value.toFixed(2)}</div>
-                    <div className="text-xs text-gray-500">{formatTokenAmount(bal)} {symbol}</div>
-                </div>
-                <div className={`text-right font-bold ${pnl >= 0 ? "text-green-500" : "text-red-500"}`}>
-                    <div className="text-lg">{pnl >= 0 ? "+" : ""}{pnl.toFixed(2)} MATIC</div>
-                    <div className="text-xs">{pnlPercent.toFixed(2)}%</div>
-                </div>
+                <div><div className="text-2xl font-black text-white">${value.toFixed(2)}</div><div className="text-xs text-gray-500">{formatTokenAmount(bal)} {symbol}</div></div>
+                <div className={`text-right font-bold ${pnl >= 0 ? "text-green-500" : "text-red-500"}`}><div className="text-lg">{pnl >= 0 ? "+" : ""}{pnl.toFixed(2)} MATIC</div><div className="text-xs">{pnlPercent.toFixed(2)}%</div></div>
             </div>
             <button onClick={() => window.open(`https://twitter.com/intent/tweet?text=I'm up ${pnlPercent.toFixed(0)}% on $${symbol}! 🚀 Check it out on AION Pump!`, '_blank')} className="mt-3 w-full py-1.5 bg-blue-500/20 text-blue-400 text-xs font-bold rounded flex items-center justify-center gap-2 hover:bg-blue-500/30 transition-colors"><Share2 size={12}/> Flex on Twitter</button>
         </div>
@@ -102,66 +92,42 @@ const ChatBox = ({ tokenAddress, creator }: { tokenAddress: string, creator: str
     const [msgs, setMsgs] = useState<any[]>([]);
     const [input, setInput] = useState("");
     const [pinned, setPinned] = useState<any>(null);
+    const [isClient, setIsClient] = useState(false);
 
-    useEffect(() => {
-        const saved = localStorage.getItem(`chat_${tokenAddress}`);
-        if(saved) setMsgs(JSON.parse(saved));
-        const savedPin = localStorage.getItem(`pin_${tokenAddress}`);
-        if(savedPin) setPinned(JSON.parse(savedPin));
+    useEffect(() => { 
+        setIsClient(true);
+        const saved = localStorage.getItem(`chat_${tokenAddress}`); 
+        if(saved) setMsgs(JSON.parse(saved)); 
+        const savedPin = localStorage.getItem(`pin_${tokenAddress}`); 
+        if(savedPin) setPinned(JSON.parse(savedPin)); 
     }, [tokenAddress]);
 
-    const sendMsg = () => {
-        if(!input.trim()) return;
-        const newMsg = { 
-            user: generateNickname(address || "0x00"), 
-            address: address,
-            text: input, 
-            time: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}),
-            isDev: address?.toLowerCase() === creator?.toLowerCase()
-        };
-        const updated = [...msgs, newMsg];
-        setMsgs(updated);
-        localStorage.setItem(`chat_${tokenAddress}`, JSON.stringify(updated));
-        setInput("");
+    const sendMsg = () => { 
+        if(!input.trim()) return; 
+        const newMsg = { user: generateNickname(address || "0x00"), address: address, text: input, time: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}), isDev: address?.toLowerCase() === creator?.toLowerCase() }; 
+        const updated = [...msgs, newMsg]; 
+        setMsgs(updated); 
+        localStorage.setItem(`chat_${tokenAddress}`, JSON.stringify(updated)); 
+        setInput(""); 
+    };
+    
+    const handlePin = (msg: any) => { 
+        if (address?.toLowerCase() !== creator?.toLowerCase()) return; 
+        setPinned(msg); 
+        localStorage.setItem(`pin_${tokenAddress}`, JSON.stringify(msg)); 
+        toast.success("Message Pinned!"); 
     };
 
-    const handlePin = (msg: any) => {
-        if (address?.toLowerCase() !== creator?.toLowerCase()) return;
-        setPinned(msg);
-        localStorage.setItem(`pin_${tokenAddress}`, JSON.stringify(msg));
-        toast.success("Message Pinned!");
-    };
+    if (!isClient) return <div className="h-[350px] flex items-center justify-center text-gray-600">Loading chat...</div>;
 
     return (
         <div className="flex flex-col h-[350px] relative">
-            {pinned && (
-                <div className="absolute top-0 left-0 right-0 bg-[#FDDC11]/90 text-black p-2 text-xs font-bold z-10 flex justify-between items-center backdrop-blur-md border-b border-black/10 rounded-t-lg">
-                    <div className="flex gap-2 items-center"><Pin size={12} fill="black"/> <span className="truncate">{pinned.user}: {pinned.text}</span></div>
-                    {address?.toLowerCase() === creator?.toLowerCase() && <button onClick={() => {setPinned(null); localStorage.removeItem(`pin_${tokenAddress}`)}}><X size={12}/></button>}
-                </div>
-            )}
+            {pinned && (<div className="absolute top-0 left-0 right-0 bg-[#FDDC11]/90 text-black p-2 text-xs font-bold z-10 flex justify-between items-center backdrop-blur-md border-b border-black/10 rounded-t-lg"><div className="flex gap-2 items-center"><Pin size={12} fill="black"/> <span className="truncate">{pinned.user}: {pinned.text}</span></div>{address?.toLowerCase() === creator?.toLowerCase() && <button onClick={() => {setPinned(null); localStorage.removeItem(`pin_${tokenAddress}`)}}><X size={12}/></button>}</div>)}
             <div className={`flex-1 overflow-y-auto space-y-3 mb-3 pr-2 scrollbar-thin scrollbar-thumb-white/10 ${pinned ? 'pt-10' : ''}`}>
                 {msgs.length === 0 && <div className="text-center text-gray-500 text-xs mt-10">No messages yet. Start the hype! 🔥</div>}
-                {msgs.map((m, i) => (
-                    <div key={i} className={`p-2 rounded-lg border text-xs group relative ${m.isDev ? "bg-purple-900/30 border-purple-500/50" : "bg-white/5 border-white/5"}`}>
-                        <div className="flex justify-between items-center mb-1">
-                            <div className="flex items-center gap-2">
-                                <img src={getAvatarUrl(m.address || "0x00")} className="w-4 h-4 rounded bg-black" alt="avatar" />
-                                <span className={`${m.isDev ? "text-purple-400" : "text-[#FDDC11]"} font-bold`}>{m.user} {m.isDev && "(DEV)"}</span>
-                            </div>
-                            <span className="text-[9px] text-gray-500">{m.time}</span>
-                        </div>
-                        <p className="text-gray-300 break-words pl-6">{m.text}</p>
-                        {address?.toLowerCase() === creator?.toLowerCase() && (
-                            <button onClick={() => handlePin(m)} className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 text-gray-400 hover:text-white transition-opacity"><Pin size={10}/></button>
-                        )}
-                    </div>
-                ))}
+                {msgs.map((m, i) => (<div key={i} className={`p-2 rounded-lg border text-xs group relative ${m.isDev ? "bg-purple-900/30 border-purple-500/50" : "bg-white/5 border-white/5"}`}><div className="flex justify-between items-center mb-1"><div className="flex items-center gap-2"><img src={getAvatarUrl(m.address || "0x00")} className="w-4 h-4 rounded bg-black" alt="avatar" /><span className={`${m.isDev ? "text-purple-400" : "text-[#FDDC11]"} font-bold`}>{m.user} {m.isDev && "(DEV)"}</span></div><span className="text-[9px] text-gray-500">{m.time}</span></div><p className="text-gray-300 break-words pl-6">{m.text}</p>{address?.toLowerCase() === creator?.toLowerCase() && (<button onClick={() => handlePin(m)} className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 text-gray-400 hover:text-white transition-opacity"><Pin size={10}/></button>)}</div>))}
             </div>
-            <div className="flex gap-2">
-                <input type="text" value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==='Enter' && sendMsg()} placeholder="Type something..." className="flex-1 bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-[#FDDC11] transition-colors" />
-                <button onClick={sendMsg} className="bg-[#FDDC11] text-black p-2 rounded-lg hover:bg-[#ffe55c] transition-colors"><Send size={14}/></button>
-            </div>
+            <div className="flex gap-2"><input type="text" value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==='Enter' && sendMsg()} placeholder="Type something..." className="flex-1 bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-[#FDDC11] transition-colors" /><button onClick={sendMsg} className="bg-[#FDDC11] text-black p-2 rounded-lg hover:bg-[#ffe55c] transition-colors"><Send size={14}/></button></div>
         </div>
     );
 };
@@ -171,20 +137,12 @@ const BubbleMap = ({ holders }: { holders: any[] }) => {
         <div className="h-[300px] w-full relative overflow-hidden bg-black/20 rounded-xl border border-white/5">
              <div className="absolute inset-0 flex items-center justify-center text-xs text-gray-500 pointer-events-none">Top 20 Holders Visualization</div>
              {holders.slice(0, 20).map((h, i) => {
+                 // HYDRATION FIX: Deterministik pozisyon (Adrese göre sabit)
+                 const seed = parseInt(h.address.slice(2, 6), 16);
                  const size = Math.max(20, Math.min(80, h.percentage * 4));
-                 const top = Math.random() * 80 + 10;
-                 const left = Math.random() * 80 + 10;
-                 return (
-                     <motion.div 
-                        key={i}
-                        initial={{ scale: 0 }} animate={{ scale: 1 }}
-                        className="absolute rounded-full flex items-center justify-center border border-white/10 shadow-xl backdrop-blur-sm cursor-pointer hover:z-10 hover:border-[#FDDC11] transition-colors"
-                        style={{ width: size, height: size, top: `${top}%`, left: `${left}%`, background: i === 0 ? 'rgba(253, 220, 17, 0.2)' : 'rgba(255,255,255,0.05)' }}
-                        title={`${h.address} (${h.percentage.toFixed(2)}%)`}
-                     >
-                         <span className="text-[8px] text-white opacity-50 truncate w-full text-center px-1 font-mono">{h.address.slice(2,5)}</span>
-                     </motion.div>
-                 )
+                 const top = (seed % 70) + 10;
+                 const left = ((seed * 13) % 70) + 10;
+                 return (<motion.div key={i} initial={{ scale: 0 }} animate={{ scale: 1 }} className="absolute rounded-full flex items-center justify-center border border-white/10 shadow-xl backdrop-blur-sm cursor-pointer hover:z-10 hover:border-[#FDDC11] transition-colors" style={{ width: size, height: size, top: `${top}%`, left: `${left}%`, background: i === 0 ? 'rgba(253, 220, 17, 0.2)' : 'rgba(255,255,255,0.05)' }} title={`${h.address} (${h.percentage.toFixed(2)}%)`}><span className="text-[8px] text-white opacity-50 truncate w-full text-center px-1 font-mono">{h.address.slice(2,5)}</span></motion.div>)
              })}
         </div>
     )
@@ -194,56 +152,29 @@ const MemeGenerator = ({ tokenImage, symbol }: { tokenImage: string, symbol: str
     const [topText, setTopText] = useState("");
     const [bottomText, setBottomText] = useState("");
     const canvasRef = useRef<HTMLCanvasElement>(null);
-
     useEffect(() => {
         const canvas = canvasRef.current;
         if(!canvas) return;
         const ctx = canvas.getContext("2d");
-        const img = new Image();
-        img.crossOrigin = "anonymous";
-        img.src = tokenImage;
+        const img = new Image(); img.crossOrigin = "anonymous"; img.src = tokenImage;
         img.onload = () => {
             if(!ctx) return;
-            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-            ctx.font = "bold 40px Impact";
-            ctx.fillStyle = "white";
-            ctx.strokeStyle = "black";
-            ctx.lineWidth = 2;
-            ctx.textAlign = "center";
-            ctx.fillText(topText.toUpperCase(), canvas.width/2, 50);
-            ctx.strokeText(topText.toUpperCase(), canvas.width/2, 50);
-            ctx.fillText(bottomText.toUpperCase(), canvas.width/2, canvas.height - 20);
-            ctx.strokeText(bottomText.toUpperCase(), canvas.width/2, canvas.height - 20);
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height); ctx.font = "bold 40px Impact"; ctx.fillStyle = "white"; ctx.strokeStyle = "black"; ctx.lineWidth = 2; ctx.textAlign = "center";
+            ctx.fillText(topText.toUpperCase(), canvas.width/2, 50); ctx.strokeText(topText.toUpperCase(), canvas.width/2, 50);
+            ctx.fillText(bottomText.toUpperCase(), canvas.width/2, canvas.height - 20); ctx.strokeText(bottomText.toUpperCase(), canvas.width/2, canvas.height - 20);
         };
     }, [topText, bottomText, tokenImage]);
-
-    const downloadMeme = () => {
-        const link = document.createElement('a');
-        link.download = `${symbol}-meme.png`;
-        link.href = canvasRef.current?.toDataURL() || "";
-        link.click();
-        toast.success("Meme Downloaded! 🎨");
-    };
-
+    const downloadMeme = () => { const link = document.createElement('a'); link.download = `${symbol}-meme.png`; link.href = canvasRef.current?.toDataURL() || ""; link.click(); toast.success("Meme Downloaded! 🎨"); };
     return (
         <div className="flex flex-col gap-4 p-4 bg-black/20 rounded-xl">
-            <canvas ref={canvasRef} width={400} height={400} className="w-full rounded-lg border border-white/10" />
-            <div className="flex gap-2">
-                <input type="text" placeholder="Top Text" className="flex-1 bg-white/5 border border-white/10 rounded px-2 py-1 text-sm outline-none text-white" value={topText} onChange={e=>setTopText(e.target.value)} />
-                <input type="text" placeholder="Bottom Text" className="flex-1 bg-white/5 border border-white/10 rounded px-2 py-1 text-sm outline-none text-white" value={bottomText} onChange={e=>setBottomText(e.target.value)} />
-            </div>
-            <button onClick={downloadMeme} className="w-full bg-[#FDDC11] text-black font-bold py-2 rounded-lg flex items-center justify-center gap-2 hover:bg-[#ffe55c] transition-colors"><Download size={16}/> Download Meme</button>
+            <canvas ref={canvasRef} width={400} height={400} className="w-full rounded-lg border border-white/10" /><div className="flex gap-2"><input type="text" placeholder="Top Text" className="flex-1 bg-white/5 border border-white/10 rounded px-2 py-1 text-sm outline-none text-white" value={topText} onChange={e=>setTopText(e.target.value)} /><input type="text" placeholder="Bottom Text" className="flex-1 bg-white/5 border border-white/10 rounded px-2 py-1 text-sm outline-none text-white" value={bottomText} onChange={e=>setBottomText(e.target.value)} /></div><button onClick={downloadMeme} className="w-full bg-[#FDDC11] text-black font-bold py-2 rounded-lg flex items-center justify-center gap-2 hover:bg-[#ffe55c] transition-colors"><Download size={16}/> Download Meme</button>
         </div>
     );
 };
 
 // --- MAIN PAGE ---
-type PageProps = { params: Promise<{ id: string }>; };
-
-export default function TradePage(props: PageProps) {
-  const params = use(props.params);
-  const id = params.id;
-  const tokenAddress = id as `0x${string}`;
+export default function TradePage({ params }: { params: { id: string } }) {
+  const tokenAddress = params.id as `0x${string}`;
   const publicClient = usePublicClient(); 
   const { isConnected, address } = useAccount();
 
