@@ -12,7 +12,7 @@ import Link from "next/link";
 import { useWriteContract, useWaitForTransactionReceipt, useReadContract, useWatchContractEvent, useAccount, usePublicClient, useBalance, useSendTransaction } from "wagmi"; 
 import { parseEther, formatEther, erc20Abi, maxUint256 } from "viem"; 
 import { CONTRACT_ADDRESS, CONTRACT_ABI } from "../../contract"; 
-import { ComposedChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import { ComposedChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, Area, AreaChart } from 'recharts';
 import toast, { Toaster } from 'react-hot-toast';
 import { motion, AnimatePresence } from "framer-motion";
 import Confetti from 'react-confetti';
@@ -51,6 +51,7 @@ const formatTokenAmount = (num: number) => {
     return num.toFixed(2); 
 };
 
+// --- CHART COMPONENT ---
 const CustomCandle = (props: any) => { 
     const { x, y, width, height, fill } = props; 
     return <rect x={x} y={y} width={width} height={Math.max(height, 2)} fill={fill} rx={2} />; 
@@ -74,17 +75,38 @@ const PnLCard = ({ balance, price, symbol }: { balance: string, price: number, s
     );
 };
 
-const ChatBox = ({ tokenAddress, creator }: { tokenAddress: string, creator: string }) => {
+// FIX: Safe Chat Component to prevent hydration errors
+const ChatBox = ({ tokenAddress }: { tokenAddress: string }) => {
     const { address } = useAccount();
     const [msgs, setMsgs] = useState<any[]>([]);
     const [input, setInput] = useState("");
     const [isClient, setIsClient] = useState(false);
-    useEffect(() => { setIsClient(true); if (typeof window !== 'undefined') { const saved = localStorage.getItem(`chat_${tokenAddress}`); if(saved) setMsgs(JSON.parse(saved)); } }, [tokenAddress]);
-    const sendMsg = () => { if(!input.trim()) return; const newMsg = { user: generateNickname(address || "0x00"), text: input, time: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) }; const updated = [...msgs, newMsg]; setMsgs(updated); localStorage.setItem(`chat_${tokenAddress}`, JSON.stringify(updated)); setInput(""); };
-    if (!isClient) return <div className="h-[300px] bg-white/5 animate-pulse rounded-xl"/>;
+
+    useEffect(() => { 
+        setIsClient(true);
+        if (typeof window !== 'undefined') {
+            try {
+                const saved = localStorage.getItem(`chat_${tokenAddress}`); 
+                if(saved) setMsgs(JSON.parse(saved)); 
+            } catch(e) {}
+        }
+    }, [tokenAddress]);
+
+    const sendMsg = () => { 
+        if(!input.trim()) return; 
+        const newMsg = { user: generateNickname(address || "0x00"), text: input, time: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) }; 
+        const updated = [...msgs, newMsg]; 
+        setMsgs(updated); 
+        localStorage.setItem(`chat_${tokenAddress}`, JSON.stringify(updated)); 
+        setInput(""); 
+    };
+
+    if (!isClient) return <div className="h-[300px] flex items-center justify-center text-gray-500">Loading chat...</div>;
+    
     return (
         <div className="flex flex-col h-[300px]">
             <div className="flex-1 overflow-y-auto space-y-2 mb-3 pr-2 scrollbar-thin scrollbar-thumb-white/10">
+                {msgs.length === 0 && <div className="text-center text-gray-500 text-xs mt-10">Start the conversation!</div>}
                 {msgs.map((m, i) => (<div key={i} className="p-2 rounded-lg bg-white/5 text-xs"><div className="flex justify-between mb-1"><span className="text-[#FDDC11] font-bold">{m.user}</span><span className="text-gray-500">{m.time}</span></div><p className="text-gray-300">{m.text}</p></div>))}
             </div>
             <div className="flex gap-2"><input type="text" value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==='Enter' && sendMsg()} className="flex-1 bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-[#FDDC11]" /><button onClick={sendMsg} className="bg-[#FDDC11] text-black p-2 rounded-lg"><Send size={14}/></button></div>
@@ -144,12 +166,13 @@ export default function TradePage({ params }: { params: { id: string } }) {
       address: tokenAddress, abi: erc20Abi, functionName: "allowance", args: [address as `0x${string}`, CONTRACT_ADDRESS], query: { enabled: !!address } 
   });
 
+  // IMPORTANT: Read sales data directly to show curve progress even without events
   const { data: salesData, refetch: refetchSales } = useReadContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "sales", args: [tokenAddress], query: { refetchInterval: 3000 } });
   const { data: name } = useReadContract({ address: tokenAddress, abi: [{ name: "name", type: "function", inputs: [], outputs: [{ type: "string" }], stateMutability: "view" }], functionName: "name" });
   const { data: symbol } = useReadContract({ address: tokenAddress, abi: [{ name: "symbol", type: "function", inputs: [], outputs: [{ type: "string" }], stateMutability: "view" }], functionName: "symbol" });
   const { data: metadata } = useReadContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "tokenMetadata", args: [tokenAddress] });
 
-  // VARIABLE DEFS
+  // DEFINED VARIABLES
   const image = metadata ? metadata[4] : "";
   const desc = metadata ? metadata[5] : "";
   const twitter = metadata ? metadata[6] : "";
@@ -169,14 +192,13 @@ export default function TradePage({ params }: { params: { id: string } }) {
   // Bonding Curve Progress
   const progress = (tokensSoldVal / 1_000_000_000) * 100;
   const realProgress = Math.min(progress, 100);
+  
+  // Simple Price Calculation based on current state (Matic Reserve / Tokens Sold)
+  // This provides a price even if history fetch fails
+  const estimatedPrice = tokensSoldVal > 0 ? collateralVal / tokensSoldVal : 0.0000001;
+  const currentPrice = chartData.length > 0 ? chartData[chartData.length - 1].price : estimatedPrice;
+  const marketCap = currentPrice * 1_000_000_000;
 
-  // REAL TIME PRICE CALCULATION
-  // Price = Collateral in Pool / Tokens Sold (Simplified Bonding Curve Price)
-  // If no sales, default to initial price 0.00000003
-  const calculatedPrice = tokensSoldVal > 0 ? (collateralVal / tokensSoldVal) : 0.00000003;
-  const marketCap = calculatedPrice * 1_000_000_000;
-
-  // APPROVAL
   const needsApproval = activeTab === "sell" && (!allowance || (amount && parseFloat(amount) > parseFloat(formatEther(allowance as bigint))));
 
   // ACTIONS
@@ -211,12 +233,13 @@ export default function TradePage({ params }: { params: { id: string } }) {
     } catch(e) { toast.error("Transaction failed"); toast.dismiss('tx'); }
   };
 
-  // --- DATA ENGINE (History) ---
+  // DATA ENGINE (FIXED RPC LIMIT & ERROR HANDLING)
   const fetchDataEngine = async () => {
     if (!publicClient) return;
     try {
       const blockNumber = await publicClient.getBlockNumber();
-      const fromBlock = blockNumber - 3000n; 
+      // FIX: Reduced block range to 990 to be safe under the 1000 limit of most public RPCs
+      const fromBlock = blockNumber - 990n; 
 
       const [buyLogs, sellLogs] = await Promise.all([
         publicClient.getContractEvents({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, eventName: 'Buy', fromBlock }),
@@ -232,46 +255,46 @@ export default function TradePage({ params }: { params: { id: string } }) {
 
       const newTrades: any[] = [];
       const newChart: any[] = [];
-      
-      // HOLDERS: Add Self First
-      const balances: Record<string, bigint> = {};
-      if(address && userTokenBalance) balances[address] = userTokenBalance as bigint; // Add current user
+      let lastP = 0.0000001;
 
+      // HOLDERS
+      const balances: Record<string, bigint> = {};
       relevantBuys.forEach((l:any) => { const amt = l.args.amountTokens ? BigInt(l.args.amountTokens) : 0n; balances[l.args.buyer] = (balances[l.args.buyer] || 0n) + amt; });
       relevantSells.forEach((l:any) => { const amt = l.args.amountTokens ? BigInt(l.args.amountTokens) : 0n; balances[l.args.seller] = (balances[l.args.seller] || 0n) - amt; });
-      
       const sortedHolders = Object.entries(balances)
-          .filter(([_, bal]) => bal > 100n) 
+          .filter(([_, bal]) => bal > 1000n) // Filtre: Sadece bakiyesi olanlar
           .sort(([, a], [, b]) => (b > a ? 1 : -1))
           .map(([addr, bal]) => ({ address: addr, percentage: (Number(bal) * 100) / 1_000_000_000 / 10**18 }));
       
       setHolderList(sortedHolders);
 
+      // CHART
       allEvents.forEach((event: any) => {
         const mVal = parseFloat(formatEther(event.args.amountMATIC || 0n));
         const tVal = parseFloat(formatEther(event.args.amountTokens || 0n));
-        // Calculate price per transaction
-        const tradePrice = tVal > 0 ? mVal / tVal : 0;
+        let price = tVal > 0 ? mVal / tVal : lastP;
         
         newTrades.unshift({ 
             user: event.args.buyer || event.args.seller, 
             type: event.type, 
             maticAmount: mVal.toFixed(4), 
             tokenAmount: tVal.toFixed(2), 
-            price: tradePrice.toFixed(8) 
+            price: price.toFixed(8) 
         });
 
         newChart.push({ 
             name: event.blockNumber.toString(), 
-            price: tradePrice, 
+            price: price, 
             fill: event.type === 'BUY' ? '#10b981' : '#ef4444' 
         });
+        
+        lastP = price;
       });
 
       if (newChart.length > 0) setChartData(newChart);
       if (newTrades.length > 0) setTradeHistory(newTrades);
 
-    } catch (e) {}
+    } catch (e) { console.error("Fetch error:", e); }
   };
 
   useEffect(() => { 
