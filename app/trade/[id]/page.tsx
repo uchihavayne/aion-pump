@@ -10,7 +10,7 @@ import {
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import Link from "next/link";
 import { useWriteContract, useWaitForTransactionReceipt, useReadContract, useWatchContractEvent, useAccount, usePublicClient, useBalance, useSendTransaction } from "wagmi"; 
-import { parseEther, formatEther, erc20Abi } from "viem"; 
+import { parseEther, formatEther, erc20Abi, maxUint256 } from "viem"; 
 import { CONTRACT_ADDRESS, CONTRACT_ABI } from "../../contract"; 
 import { ComposedChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, PieChart, Pie } from 'recharts';
 import toast, { Toaster } from 'react-hot-toast';
@@ -206,17 +206,19 @@ export default function TradePage({ params }: { params: { id: string } }) {
   // CONTRACT READS
   const { data: maticBalance, refetch: refetchMatic } = useBalance({ address: address });
   const { data: userTokenBalance, refetch: refetchTokenBalance } = useReadContract({ address: tokenAddress, abi: erc20Abi, functionName: "balanceOf", args: [address as `0x${string}`], query: { enabled: !!address } });
-  const { data: salesData, refetch: refetchSales } = useReadContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "sales", args: [tokenAddress] });
-  const { data: name } = useReadContract({ address: tokenAddress, abi: [{ name: "name", type: "function", inputs: [], outputs: [{ type: "string" }], stateMutability: "view" }], functionName: "name" });
-  const { data: symbol } = useReadContract({ address: tokenAddress, abi: [{ name: "symbol", type: "function", inputs: [], outputs: [{ type: "string" }], stateMutability: "view" }], functionName: "symbol" });
-  const { data: metadata } = useReadContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "tokenMetadata", args: [tokenAddress] });
   
   // APPROVAL CHECK
   const { data: allowance, refetch: refetchAllowance } = useReadContract({ 
       address: tokenAddress, abi: erc20Abi, functionName: "allowance", args: [address as `0x${string}`, CONTRACT_ADDRESS], query: { enabled: !!address } 
   });
 
-  // FIX: Define missing variables
+  // METADATA
+  const { data: salesData, refetch: refetchSales } = useReadContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "sales", args: [tokenAddress] });
+  const { data: name } = useReadContract({ address: tokenAddress, abi: [{ name: "name", type: "function", inputs: [], outputs: [{ type: "string" }], stateMutability: "view" }], functionName: "name" });
+  const { data: symbol } = useReadContract({ address: tokenAddress, abi: [{ name: "symbol", type: "function", inputs: [], outputs: [{ type: "string" }], stateMutability: "view" }], functionName: "symbol" });
+  const { data: metadata } = useReadContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "tokenMetadata", args: [tokenAddress] });
+
+  // DEFINED VARIABLES (Fixed ReferenceError)
   const image = metadata ? metadata[4] : "";
   const desc = metadata ? metadata[5] : "";
   const twitter = metadata ? metadata[6] : "";
@@ -237,8 +239,8 @@ export default function TradePage({ params }: { params: { id: string } }) {
   const riskScore = holderList.length < 5 ? 20 : holderList.length < 20 ? 50 : 90;
   const creatorAddress = salesData ? salesData[0] : "";
 
-  // APPROVAL STATUS
-  const needsApproval = activeTab === "sell" && amount && allowance !== undefined && parseFloat(amount) > parseFloat(formatEther(allowance as bigint));
+  // APPROVAL LOGIC
+  const needsApproval = activeTab === "sell" && amount && (!allowance || parseFloat(amount) > parseFloat(formatEther(allowance as bigint)));
 
   // ACTIONS
   const { writeContract: burnContract } = useWriteContract();
@@ -335,11 +337,29 @@ export default function TradePage({ params }: { params: { id: string } }) {
     try {
         const val = parseEther(amount);
         if (needsApproval) {
-            writeContract({ address: tokenAddress, abi: erc20Abi, functionName: "approve", args: [CONTRACT_ADDRESS, parseEther("1000000000")] });
+            // FIX: Gas Limit and MAX Approval
+            writeContract({ 
+                address: tokenAddress, 
+                abi: erc20Abi, 
+                functionName: "approve", 
+                args: [CONTRACT_ADDRESS, maxUint256],
+                gas: BigInt(300000) 
+            });
             toast.loading("Approving...", { id: 'tx' });
         } else {
-            if (activeTab === "buy") writeContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "buy", args: [tokenAddress], value: val });
-            else writeContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "sell", args: [tokenAddress, val] });
+            if (activeTab === "buy") {
+                 writeContract({ 
+                     address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "buy", 
+                     args: [tokenAddress], value: val,
+                     gas: BigInt(500000) // Gas Force
+                 });
+            } else { 
+                 writeContract({ 
+                     address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "sell", 
+                     args: [tokenAddress, val],
+                     gas: BigInt(500000) // Gas Force
+                 });
+            }
             toast.loading("Confirming...", { id: 'tx' });
         }
     } catch(e) { toast.error("Failed"); toast.dismiss('tx'); }
@@ -379,7 +399,6 @@ export default function TradePage({ params }: { params: { id: string } }) {
         </div>
       </header>
 
-      {/* TV MODE OVERLAY */}
       {isTvMode ? (
          <div className="fixed inset-0 z-50 bg-black p-4 flex flex-col">
             <button onClick={() => setIsTvMode(false)} className="absolute top-4 right-4 bg-white/10 p-2 rounded-full z-50 text-white hover:bg-white/20"><X/></button>
@@ -388,10 +407,7 @@ export default function TradePage({ params }: { params: { id: string } }) {
          </div>
       ) : (
       <main className="max-w-[1400px] mx-auto px-4 py-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
-        
-        {/* SOL KOLON */}
         <div className="lg:col-span-8 flex flex-col gap-6">
-            {/* TOKEN INFO */}
             <div className="flex items-start gap-4">
                 <div className="w-16 h-16 bg-[#2d1b4e] rounded-xl border border-white/10 overflow-hidden shadow-lg"><MediaRenderer src={tokenImage} className="w-full h-full object-cover"/></div>
                 <div className="flex-1">
@@ -404,122 +420,35 @@ export default function TradePage({ params }: { params: { id: string } }) {
                     </div>
                 </div>
             </div>
-
-            {/* CHART */}
             <div className={`border rounded-2xl p-5 h-[450px] shadow-xl ${isMatrixMode ? "bg-black border-green-500" : "bg-[#2d1b4e]/50 border-white/5"}`}>
                 <div className="flex justify-between items-center mb-4"><div className="flex gap-4"><div className="text-lg font-bold">{currentPrice.toFixed(6)} MATIC</div><div className="text-lg font-bold text-[#FDDC11]">MC: {(marketCap).toLocaleString()} MATIC</div></div></div>
-                <ResponsiveContainer width="100%" height="90%">
-                    <ComposedChart data={chartData}>
-                        <YAxis domain={['auto', 'auto']} hide />
-                        <Tooltip contentStyle={{ backgroundColor: '#181a20', border: '1px solid #333' }} />
-                        <Bar dataKey="price" shape={<CustomCandle />} isAnimationActive={false}>
-                            {chartData.map((entry, index) => (<Cell key={`cell-${index}`} fill={isMatrixMode ? "#22c55e" : entry.fill} />))}
-                        </Bar>
-                    </ComposedChart>
-                </ResponsiveContainer>
+                <ResponsiveContainer width="100%" height="90%"><ComposedChart data={chartData}><YAxis domain={['auto', 'auto']} hide /><Tooltip contentStyle={{ backgroundColor: '#181a20', border: '1px solid #333' }} /><Bar dataKey="price" shape={<CustomCandle />} isAnimationActive={false}>{chartData.map((entry, index) => (<Cell key={`cell-${index}`} fill={isMatrixMode ? "#22c55e" : entry.fill} />))}</Bar></ComposedChart></ResponsiveContainer>
             </div>
-
-            {/* TABS & LISTS */}
             <div className="flex flex-col gap-4">
-                <div className={`flex gap-1 p-1 rounded-lg border w-fit ${isMatrixMode ? "bg-black border-green-500" : "bg-[#2d1b4e] border-white/5"}`}>
-                    {["trades", "holders", "bubbles", "chat", "meme"].map(tab => (
-                        <button key={tab} onClick={() => setBottomTab(tab as any)} className={`px-4 py-1.5 rounded-md text-xs font-bold capitalize transition-all ${bottomTab === tab ? "bg-[#3e2465] text-white" : "text-gray-500 hover:text-white"}`}>{tab}</button>
-                    ))}
-                </div>
+                <div className={`flex gap-1 p-1 rounded-lg border w-fit ${isMatrixMode ? "bg-black border-green-500" : "bg-[#2d1b4e] border-white/5"}`}>{["trades", "holders", "bubbles", "chat", "meme"].map(tab => (<button key={tab} onClick={() => setBottomTab(tab as any)} className={`px-4 py-1.5 rounded-md text-xs font-bold capitalize transition-all ${bottomTab === tab ? "bg-[#3e2465] text-white" : "text-gray-500 hover:text-white"}`}>{tab}</button>))}</div>
                 <div className={`border rounded-2xl p-4 min-h-[300px] ${isMatrixMode ? "bg-black border-green-500" : "bg-[#2d1b4e]/50 border-white/5"}`}>
-                    {bottomTab === "trades" && (
-                        <div className="flex flex-col gap-1">
-                            <div className="grid grid-cols-5 text-[10px] font-bold text-gray-500 uppercase px-3 pb-2"><div>User</div><div>Type</div><div>MATIC</div><div>Tokens</div><div className="text-right">Price</div></div>
-                            {tradeHistory.map((trade, i) => (
-                                <div key={i} className={`grid grid-cols-5 text-xs py-3 px-3 rounded-lg border-b border-white/5 ${trade.user.toLowerCase() === creatorAddress?.toLowerCase() ? 'bg-purple-900/30 border-purple-500/50 animate-pulse' : 'hover:bg-white/5'}`}>
-                                    <div className="font-mono text-gray-400 flex items-center gap-1">{generateNickname(trade.user)} {trade.user.toLowerCase() === creatorAddress?.toLowerCase() && <span className="bg-purple-500 text-white text-[8px] px-1 rounded">DEV</span>}</div>
-                                    <div className={trade.type==="BUY"?"text-green-500 font-bold":"text-red-500 font-bold"}>{trade.type}</div>
-                                    <div className="text-white">{trade.maticAmount}</div>
-                                    <div className="text-white">{formatTokenAmount(trade.tokenAmount)}</div>
-                                    <div className="text-right text-gray-500">{trade.price}</div>
-                                </div>
-                            ))}
-                        </div>
-                    )}
-                    {bottomTab === "holders" && (
-                        <div className="flex gap-6">
-                            <div className="w-1/3 h-[200px]"><ResponsiveContainer><PieChart><Pie data={pieData} cx="50%" cy="50%" innerRadius={40} outerRadius={60} dataKey="value">{pieData.map((e,i)=><Cell key={i} fill={e.fill}/>)}</Pie></PieChart></ResponsiveContainer></div>
-                            <div className="w-2/3 flex flex-col gap-2">{holderList.map((h,i)=>(<div key={i} className="flex justify-between text-xs border-b border-white/5 pb-1"><span className="font-mono text-gray-400">{generateNickname(h.address)} {h.address.toLowerCase() === creatorAddress?.toLowerCase() && "(DEV)"}</span><span className="text-white">{h.percentage.toFixed(2)}%</span></div>))}</div>
-                        </div>
-                    )}
+                    {bottomTab === "trades" && (<div className="flex flex-col gap-1"><div className="grid grid-cols-5 text-[10px] font-bold text-gray-500 uppercase px-3 pb-2"><div>User</div><div>Type</div><div>MATIC</div><div>Tokens</div><div className="text-right">Price</div></div>{tradeHistory.map((trade, i) => (<div key={i} className={`grid grid-cols-5 text-xs py-3 px-3 rounded-lg border-b border-white/5 ${trade.user.toLowerCase() === creatorAddress?.toLowerCase() ? 'bg-purple-900/30 border-purple-500/50 animate-pulse' : 'hover:bg-white/5'}`}><div className="font-mono text-gray-400 flex items-center gap-1">{generateNickname(trade.user)} {trade.user.toLowerCase() === creatorAddress?.toLowerCase() && <span className="bg-purple-500 text-white text-[8px] px-1 rounded">DEV</span>}</div><div className={trade.type==="BUY"?"text-green-500 font-bold":"text-red-500 font-bold"}>{trade.type}</div><div className="text-white">{trade.maticAmount}</div><div className="text-white">{formatTokenAmount(trade.tokenAmount)}</div><div className="text-right text-gray-500">{trade.price}</div></div>))}</div>)}
+                    {bottomTab === "holders" && (<div className="flex gap-6"><div className="w-1/3 h-[200px]"><ResponsiveContainer><PieChart><Pie data={pieData} cx="50%" cy="50%" innerRadius={40} outerRadius={60} dataKey="value">{pieData.map((e,i)=><Cell key={i} fill={e.fill}/>)}</Pie></PieChart></ResponsiveContainer></div><div className="w-2/3 flex flex-col gap-2">{holderList.map((h,i)=>(<div key={i} className="flex justify-between text-xs border-b border-white/5 pb-1"><span className="font-mono text-gray-400">{generateNickname(h.address)} {h.address.toLowerCase() === creatorAddress?.toLowerCase() && "(DEV)"}</span><span className="text-white">{h.percentage.toFixed(2)}%</span></div>))}</div></div>)}
                     {bottomTab === "bubbles" && <BubbleMap holders={holderList} />}
                     {bottomTab === "chat" && <ChatBox tokenAddress={tokenAddress} creator={creatorAddress} />}
                     {bottomTab === "meme" && <MemeGenerator tokenImage={tokenImage} symbol={symbol?.toString() || "TKN"} />}
                 </div>
             </div>
         </div>
-
-        {/* SAĞ KOLON: TRADE */}
         <div className="lg:col-span-4 space-y-6">
-            {/* PnL CARD */}
-            {userTokenBalance && userTokenBalance > 0n && <PnLCard balance={formatEther(userTokenBalance)} price={currentPrice} symbol={symbol?.toString() || "TKN"} />}
-
+            {userTokenBalance ? userTokenBalance > 0n && <PnLCard balance={formatEther(userTokenBalance)} price={currentPrice} symbol={symbol?.toString() || "TKN"} /> : null}
             <div className={`border rounded-2xl p-5 sticky top-24 ${isMatrixMode ? "bg-black border-green-500" : "bg-[#2d1b4e] border-white/10"}`}>
-                <div className="flex justify-between items-center mb-4">
-                     <button onClick={() => setShowSettings(!showSettings)} className="text-gray-400 hover:text-white transition-colors"><Settings size={16}/></button>
-                     {showSettings && (
-                        <div className="absolute top-12 right-5 bg-[#1a0e2e] border border-white/20 p-3 rounded-lg z-50 shadow-xl w-48 animate-in fade-in zoom-in-95 duration-200">
-                            <div className="text-xs font-bold text-white mb-2">Pro Settings</div>
-                            <div className="flex items-center justify-between mb-2"><span className="text-xs text-gray-400 flex items-center gap-1"><Crosshair size={10}/> Sniper Mode</span><input type="checkbox" checked={sniperMode} onChange={e=>setSniperMode(e.target.checked)} className="accent-[#FDDC11]"/></div>
-                            <div className="flex items-center justify-between mb-2"><span className="text-xs text-gray-400 flex items-center gap-1"><Lock size={10}/> MEV Protect</span><input type="checkbox" checked={mevProtect} onChange={e=>setMevProtect(e.target.checked)} className="accent-[#FDDC11]"/></div>
-                            <div className="text-xs text-gray-400 mb-1">Price Alert</div>
-                            <input type="text" placeholder="Target Price..." className="w-full bg-white/5 border border-white/10 rounded px-2 py-1 text-xs text-white outline-none focus:border-[#FDDC11]" value={priceAlert} onChange={e=>setPriceAlert(e.target.value)} />
-                        </div>
-                     )}
-                </div>
-
-                <div className="grid grid-cols-2 gap-3 mb-6">
-                    <button onClick={() => setActiveTab("buy")} className={`py-3 rounded-xl font-black transition-colors ${activeTab==="buy"?"bg-green-500 text-white":"bg-white/5 text-gray-400"}`}>Buy</button>
-                    <button onClick={() => setActiveTab("sell")} className={`py-3 rounded-xl font-black transition-colors ${activeTab==="sell"?"bg-red-500 text-white":"bg-white/5 text-gray-400"}`}>Sell</button>
-                </div>
-
-                <div className="bg-[#1a0e2e] rounded-xl p-4 mb-4 border border-white/5">
-                    <div className="flex justify-between text-xs text-gray-400 mb-2"><span>Amount</span><span>Bal: {activeTab==="buy" ? `${maticBalance?.formatted?.slice(0,5)} MATIC` : `${parseFloat(formatEther(userTokenBalance || 0n)).toFixed(2)} ${symbol}`}</span></div>
-                    <input type="number" placeholder="0.0" value={amount} onChange={(e) => setAmount(e.target.value)} className="w-full bg-transparent text-2xl font-black text-white outline-none" />
-                </div>
-
-                <div className="grid grid-cols-4 gap-2 mb-4">
-                    {[10, 25, 50, 100].map(p => (
-                        <button key={p} onClick={() => handlePercentage(p)} className="py-2 rounded-lg bg-white/5 hover:bg-white/10 text-xs font-bold transition-colors">{p === 100 ? "MAX" : `${p}%`}</button>
-                    ))}
-                </div>
-
-                {/* BURN BUTTON (ONLY ON SELL TAB) */}
-                {activeTab === "sell" && (
-                    <button onClick={handleBurn} className="w-full py-2 mb-4 bg-orange-600/20 text-orange-500 border border-orange-500/50 rounded-lg text-xs font-bold flex items-center justify-center gap-2 hover:bg-orange-600/40 transition-colors"><Flame size={12}/> Burn Tokens</button>
-                )}
-
-                <div className="flex justify-between items-center px-1 mb-4">
-                    <div className="flex items-center gap-2">
-                         <Shield size={14} className={riskScore > 70 ? "text-green-500" : "text-red-500"} />
-                         <span className={`text-xs font-bold ${riskScore > 70 ? "text-green-500" : "text-red-500"}`}>Risk: {riskScore > 70 ? "LOW" : "HIGH"} ({riskScore}%)</span>
-                    </div>
-                    <div className="flex gap-2 items-center">
-                        <span className="text-xs text-gray-500">Slip:</span>
-                        <select value={slippage} onChange={e=>setSlippage(Number(e.target.value))} className="bg-transparent text-[#FDDC11] text-xs font-bold outline-none cursor-pointer"><option value={1}>1%</option><option value={5}>5%</option><option value={10}>10%</option></select>
-                    </div>
-                </div>
-
-                {/* APPROVE BUTTON OR TRADE BUTTON */}
-                <button onClick={handleTx} disabled={isPending || isConfirming} className={`w-full py-4 rounded-xl font-black ${activeTab==="buy"?"bg-green-500 hover:bg-green-600":"bg-red-500 hover:bg-red-600"} text-white transition-all disabled:opacity-50`}>
-                    {isPending ? (activeTab==="sell" && needsApproval ? "Approving..." : "Processing...") : activeTab === "buy" ? "PLACE BUY ORDER" : needsApproval ? "APPROVE TO SELL" : "PLACE SELL ORDER"}
-                </button>
+                <div className="flex justify-between items-center mb-4"><button onClick={() => setShowSettings(!showSettings)} className="text-gray-400 hover:text-white transition-colors"><Settings size={16}/></button>{showSettings && (<div className="absolute top-12 right-5 bg-[#1a0e2e] border border-white/20 p-3 rounded-lg z-50 shadow-xl w-48 animate-in fade-in zoom-in-95 duration-200"><div className="text-xs font-bold text-white mb-2">Pro Settings</div><div className="flex items-center justify-between mb-2"><span className="text-xs text-gray-400 flex items-center gap-1"><Crosshair size={10}/> Sniper Mode</span><input type="checkbox" checked={sniperMode} onChange={e=>setSniperMode(e.target.checked)} className="accent-[#FDDC11]"/></div><div className="flex items-center justify-between mb-2"><span className="text-xs text-gray-400 flex items-center gap-1"><Lock size={10}/> MEV Protect</span><input type="checkbox" checked={mevProtect} onChange={e=>setMevProtect(e.target.checked)} className="accent-[#FDDC11]"/></div><div className="text-xs text-gray-400 mb-1">Price Alert</div><input type="text" placeholder="Target Price..." className="w-full bg-white/5 border border-white/10 rounded px-2 py-1 text-xs text-white outline-none focus:border-[#FDDC11]" value={priceAlert} onChange={e=>setPriceAlert(e.target.value)} /></div>)}</div>
+                <div className="grid grid-cols-2 gap-3 mb-6"><button onClick={() => setActiveTab("buy")} className={`py-3 rounded-xl font-black transition-colors ${activeTab==="buy"?"bg-green-500 text-white":"bg-white/5 text-gray-400"}`}>Buy</button><button onClick={() => setActiveTab("sell")} className={`py-3 rounded-xl font-black transition-colors ${activeTab==="sell"?"bg-red-500 text-white":"bg-white/5 text-gray-400"}`}>Sell</button></div>
+                <div className="bg-[#1a0e2e] rounded-xl p-4 mb-4 border border-white/5"><div className="flex justify-between text-xs text-gray-400 mb-2"><span>Amount</span><span>Bal: {activeTab==="buy" ? `${maticBalance?.formatted?.slice(0,5)} MATIC` : `${parseFloat(formatEther(userTokenBalance || 0n)).toFixed(2)} ${symbol}`}</span></div><input type="number" placeholder="0.0" value={amount} onChange={(e) => setAmount(e.target.value)} className="w-full bg-transparent text-2xl font-black text-white outline-none" /></div>
+                <div className="grid grid-cols-4 gap-2 mb-4">{[10, 25, 50, 100].map(p => (<button key={p} onClick={() => handlePercentage(p)} className="py-2 rounded-lg bg-white/5 hover:bg-white/10 text-xs font-bold transition-colors">{p === 100 ? "MAX" : `${p}%`}</button>))}</div>
+                {activeTab === "sell" && (<button onClick={handleBurn} className="w-full py-2 mb-4 bg-orange-600/20 text-orange-500 border border-orange-500/50 rounded-lg text-xs font-bold flex items-center justify-center gap-2 hover:bg-orange-600/40 transition-colors"><Flame size={12}/> Burn Tokens</button>)}
+                <div className="flex justify-between items-center px-1 mb-4"><div className="flex items-center gap-2"><Shield size={14} className={riskScore > 70 ? "text-green-500" : "text-red-500"} /><span className={`text-xs font-bold ${riskScore > 70 ? "text-green-500" : "text-red-500"}`}>Risk: {riskScore > 70 ? "LOW" : "HIGH"} ({riskScore}%)</span></div><div className="flex gap-2 items-center"><span className="text-xs text-gray-500">Slip:</span><select value={slippage} onChange={e=>setSlippage(Number(e.target.value))} className="bg-transparent text-[#FDDC11] text-xs font-bold outline-none cursor-pointer"><option value={1}>1%</option><option value={5}>5%</option><option value={10}>10%</option></select></div></div>
+                <button onClick={handleTx} disabled={isPending || isConfirming} className={`w-full py-4 rounded-xl font-black ${activeTab==="buy"?"bg-green-500 hover:bg-green-600":"bg-red-500 hover:bg-red-600"} text-white transition-all disabled:opacity-50`}>{isPending ? (activeTab==="sell" && needsApproval ? "Approving..." : "Processing...") : activeTab === "buy" ? "PLACE BUY ORDER" : needsApproval ? "APPROVE TO SELL" : "PLACE SELL ORDER"}</button>
             </div>
-
             <div className={`border rounded-xl p-4 space-y-4 ${isMatrixMode ? "bg-black border-green-500" : "bg-[#2d1b4e]/50 border-white/5"}`}>
-                <div>
-                    <div className="flex justify-between text-xs mb-1"><span className="text-gray-400">Bonding Curve</span><span className="text-white">{realProgress.toFixed(1)}%</span></div>
-                    <div className="h-2 bg-white/10 rounded-full overflow-hidden"><div className="h-full bg-gradient-to-r from-yellow-400 to-orange-500 transition-all duration-500" style={{ width: `${realProgress}%` }} /></div>
-                </div>
-                <div>
-                    <div className="flex justify-between text-xs mb-1"><span className="text-gray-400">Dex Graduation</span><span className="text-green-400">{migrationProgress.toFixed(1)}%</span></div>
-                    <div className="h-2 bg-white/10 rounded-full overflow-hidden"><div className="h-full bg-gradient-to-r from-green-400 to-emerald-600 transition-all duration-500" style={{ width: `${migrationProgress}%` }} /></div>
-                </div>
+                <div><div className="flex justify-between text-xs mb-1"><span className="text-gray-400">Bonding Curve</span><span className="text-white">{realProgress.toFixed(1)}%</span></div><div className="h-2 bg-white/10 rounded-full overflow-hidden"><div className="h-full bg-gradient-to-r from-yellow-400 to-orange-500 transition-all duration-500" style={{ width: `${realProgress}%` }} /></div></div>
+                <div><div className="flex justify-between text-xs mb-1"><span className="text-gray-400">Dex Graduation</span><span className="text-green-400">{migrationProgress.toFixed(1)}%</span></div><div className="h-2 bg-white/10 rounded-full overflow-hidden"><div className="h-full bg-gradient-to-r from-green-400 to-emerald-600 transition-all duration-500" style={{ width: `${migrationProgress}%` }} /></div></div>
                 <div className="flex justify-between text-xs"><span className="text-gray-500">Holders</span><span className="text-white font-bold">{holderList.length}</span></div>
                 <div className="flex justify-between text-xs"><span className="text-gray-500">Market Cap</span><span className="text-white font-bold">{marketCap.toLocaleString()} MATIC</span></div>
             </div>
