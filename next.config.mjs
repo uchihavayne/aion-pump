@@ -2,12 +2,15 @@
 const nextConfig = {
   reactStrictMode: true,
   typescript: {
-    // Hataları yoksay ve build al
     ignoreBuildErrors: true,
   },
   eslint: {
-    // Lint hatalarını yoksay
     ignoreDuringBuilds: true,
+  },
+  webpack: (config) => {
+    config.resolve.fallback = { fs: false, net: false, tls: false };
+    config.externals.push("pino-pretty", "lokijs", "encoding");
+    return config;
   },
 };
 
