@@ -16,6 +16,12 @@ const getTokenImage = (address: string) =>
   `https://api.dyneui.com/avatar/abstract?seed=${address}&size=400&background=000000&color=FDDC11&pattern=circuit&variance=0.7`;
 
 const MediaRenderer = ({ src, className }: { src: string, className: string }) => {
+    // HYDRATION FIX: Sadece client tarafında render et
+    const [isClient, setIsClient] = useState(false);
+    useEffect(() => setIsClient(true), []);
+    
+    if (!isClient) return <div className={`${className} bg-gray-800 animate-pulse`} />;
+
     const isVideo = src.includes(".mp4") || src.includes(".webm");
     if (isVideo) return <video src={src} className={className} autoPlay muted loop playsInline />;
     return <img src={src} className={className} alt="token" />;
@@ -30,7 +36,7 @@ function VersusBattle({ token1, token2 }: { token1: string, token2: string }) {
                 <Swords size={32} color="white" className="animate-pulse"/>
             </div>
             <div className="flex flex-col md:flex-row gap-4 md:gap-0 bg-[#1a0e2e] border border-white/10 rounded-3xl overflow-hidden relative">
-                {/* Token 1 (Left/Top) */}
+                {/* Token 1 */}
                 <Link href={`/trade/${token1}`} className="flex-1 p-6 relative group cursor-pointer hover:bg-white/5 transition-colors">
                     <div className="absolute inset-0 bg-gradient-to-r from-blue-600/20 to-transparent opacity-50" />
                     <div className="relative z-10 flex items-center gap-4">
@@ -42,11 +48,8 @@ function VersusBattle({ token1, token2 }: { token1: string, token2: string }) {
                         </div>
                     </div>
                 </Link>
-                
-                {/* VS Divider */}
                 <div className="w-full h-1 md:w-1 md:h-auto bg-black relative z-10"></div>
-
-                {/* Token 2 (Right/Bottom) */}
+                {/* Token 2 */}
                 <Link href={`/trade/${token2}`} className="flex-1 p-6 relative group cursor-pointer hover:bg-white/5 transition-colors text-right">
                     <div className="absolute inset-0 bg-gradient-to-l from-red-600/20 to-transparent opacity-50" />
                     <div className="relative z-10 flex items-center justify-end gap-4">
@@ -59,8 +62,6 @@ function VersusBattle({ token1, token2 }: { token1: string, token2: string }) {
                     </div>
                 </Link>
             </div>
-            
-            {/* Battle Bar */}
             <div className="mt-2 h-4 w-full bg-gray-800 rounded-full overflow-hidden flex border border-white/10">
                 <div className="h-full bg-blue-500 transition-all duration-1000 w-[55%] relative"><div className="absolute inset-0 animate-pulse bg-white/20"/></div>
                 <div className="h-full bg-red-500 transition-all duration-1000 w-[45%] relative"><div className="absolute inset-0 animate-pulse bg-white/20"/></div>
@@ -93,8 +94,11 @@ function DarkTokenCard({ tokenAddress }: { tokenAddress: `0x${string}` }) {
   const tokenImage = getTokenImage(tokenAddress);
 
   useEffect(() => {
-    const favs = JSON.parse(localStorage.getItem("favorites") || "[]");
-    setIsFav(favs.includes(tokenAddress));
+    // Client-side only storage access
+    if (typeof window !== 'undefined') {
+        const favs = JSON.parse(localStorage.getItem("favorites") || "[]");
+        setIsFav(favs.includes(tokenAddress));
+    }
     const getHolders = async () => {
       if(!publicClient) return;
       try {
@@ -172,8 +176,6 @@ function LiveTicker() {
     <div className="w-full bg-[#FDDC11]/10 border-b border-[#FDDC11]/20 overflow-hidden py-2">
       <div className="flex gap-8 animate-marquee whitespace-nowrap">
         {events.length === 0 ? (<span className="text-sm text-[#FDDC11] font-mono flex items-center gap-2">🚀 Live trades will appear here...</span>) : (events.map((e, i) => (<span key={i} className="text-sm text-[#FDDC11] font-mono flex items-center gap-2">🟢 {e.buyer.slice(0,4)}... bought {e.amount} MATIC</span>)))}
-        <span className="text-sm text-gray-500 font-mono">⚡ LIVE ACTIVITY</span>
-        <span className="text-sm text-green-400 font-mono">🟢 0x1a... bought 50 MATIC</span>
       </div>
       <style>{`.animate-marquee { animation: marquee 20s linear infinite; } @keyframes marquee { 0% { transform: translateX(100%); } 100% { transform: translateX(-100%); } }`}</style>
     </div>
@@ -181,6 +183,7 @@ function LiveTicker() {
 }
 
 export default function HomePage() {
+  // --- HYDRATION FIX: MOUNTED CHECK ---
   const [isMounted, setIsMounted] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("trending");
@@ -193,6 +196,7 @@ export default function HomePage() {
   const [orderedTokens, setOrderedTokens] = useState<string[]>([]);
   
   useEffect(() => { 
+    setIsMounted(true); // Component yüklendiğinde true yap
     if (allTokens) { 
       const tokens = (allTokens as string[]).filter(t => !HIDDEN_TOKENS.includes(t.toLowerCase())).reverse();
       setOrderedTokens(tokens);
@@ -232,8 +236,8 @@ export default function HomePage() {
     }
   }, [isConfirmed]);
 
-  useEffect(() => { setIsMounted(true); }, []);
-  if (!isMounted) return <div style={{ minHeight: '100vh', backgroundColor: '#0a0e27', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#FDDC11', fontFamily: 'sans-serif' }}>Loading AION...</div>;
+  // CRITICAL: Prevent rendering until client-side hydration is complete
+  if (!isMounted) return <div className="min-h-screen bg-[#0a0e27] flex items-center justify-center text-[#FDDC11] font-mono">Loading AION Pump...</div>;
 
   return (
     <div style={{ backgroundColor: '#0a0e27', color: '#fff', minHeight: '100vh', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', position: 'relative', overflow: 'hidden' }}>
@@ -259,7 +263,6 @@ export default function HomePage() {
       </header>
 
       <main style={{ maxWidth: '1280px', margin: '0 auto', padding: '40px 20px', position: 'relative', zIndex: 10 }}>
-        {/* VERSUS BATTLE SECTION (Replaces King of the Hill) */}
         {orderedTokens.length > 1 && (
             <VersusBattle token1={orderedTokens[0]} token2={orderedTokens[1]} />
         )}
