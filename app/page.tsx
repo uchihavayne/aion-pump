@@ -20,20 +20,44 @@ const getTokenImage = (address: string) =>
 // Medya Oynatıcı (Hata Korumalı)
 const MediaRenderer = ({ src, className }: { src: string, className: string }) => {
     const [mounted, setMounted] = useState(false);
-    useEffect(() => setMounted(true), []);
+    const [hasError, setHasError] = useState(false);
     
-    if (!mounted) return <div className={`${className} bg-gray-800 animate-pulse`} />;
+    useEffect(() => {
+        setMounted(true);
+    }, []);
+    
+    if (!mounted) return <div className={`${className} bg-gray-800 animate-pulse rounded-2xl`} />;
 
-    // Güvenli render
     const isVideo = src && (src.includes(".mp4") || src.includes(".webm"));
-    if (isVideo) return <video src={src} className={className} autoPlay muted loop playsInline />;
+    
+    if (isVideo) {
+        return (
+            <video 
+                src={src} 
+                className={className} 
+                autoPlay 
+                muted 
+                loop 
+                playsInline 
+                onError={() => setHasError(true)}
+            />
+        );
+    }
+    
+    if (hasError || !src) {
+        return (
+            <div className={`${className} bg-gradient-to-br from-[#FDDC11]/20 to-purple-600/20 rounded-2xl flex items-center justify-center`}>
+                <span className="text-[#FDDC11] font-bold">TOKEN</span>
+            </div>
+        );
+    }
     
     return (
         <img 
-            src={src || getTokenImage("default")} 
+            src={src} 
             className={className} 
             alt="token" 
-            onError={(e) => { (e.target as HTMLImageElement).src = getTokenImage("default"); }} 
+            onError={() => setHasError(true)}
         />
     );
 };
@@ -73,7 +97,7 @@ function DarkTokenCard({ tokenAddress }: { tokenAddress: `0x${string}` }) {
   const [isFav, setIsFav] = useState(false);
   const { writeContract } = useWriteContract();
   
-  // Data Fetching - HATALI: Hook'lar conditional olmamalı
+  // Hook'lar conditional OLMAMALI - her zaman çağrılmalı
   const { data: salesData } = useReadContract({ 
     address: CONTRACT_ADDRESS, 
     abi: CONTRACT_ABI, 
@@ -112,15 +136,6 @@ function DarkTokenCard({ tokenAddress }: { tokenAddress: `0x${string}` }) {
     args: [tokenAddress] 
   });
 
-  // Güvenli Veri İşleme (BigInt Hatalarını Önler)
-  const collateralStr = salesData && salesData[1] ? formatEther(salesData[1] as bigint) : "0";
-  const tokensSoldStr = salesData && salesData[3] ? formatEther(salesData[3] as bigint) : "0";
-  const progress = (parseFloat(tokensSoldStr) / 1_000_000_000) * 100;
-  const realProgress = Math.min(progress, 100);
-  
-  const image = metadata && metadata[4] ? metadata[4] : "";
-  const tokenImage = getTokenImage(tokenAddress);
-
   useEffect(() => {
     // Sadece tarayıcıda çalışır
     if (typeof window !== 'undefined') {
@@ -128,6 +143,15 @@ function DarkTokenCard({ tokenAddress }: { tokenAddress: `0x${string}` }) {
         setIsFav(favs.includes(tokenAddress));
     }
   }, [tokenAddress]);
+
+  // Güvenli Veri İşleme (BigInt Hatalarını Önler)
+  const collateralStr = salesData && salesData[1] ? formatEther(salesData[1] as bigint) : "0";
+  const tokensSoldStr = salesData && salesData[2] ? formatEther(salesData[2] as bigint) : "0";
+  const progress = (parseFloat(tokensSoldStr) / 1_000_000_000) * 100;
+  const realProgress = Math.min(progress, 100);
+  
+  const image = metadata && metadata[4] ? metadata[4] : "";
+  const tokenImage = getTokenImage(tokenAddress);
 
   const toggleFav = (e: React.MouseEvent) => {
     e.preventDefault(); 
@@ -157,8 +181,8 @@ function DarkTokenCard({ tokenAddress }: { tokenAddress: `0x${string}` }) {
             value: parseEther("1") 
           });
           toast.loading("Quick buying 1 MATIC...", { duration: 4000 });
-      } catch(err) { 
-        toast.error("Quick buy failed"); 
+      } catch(err: any) { 
+        toast.error(err?.message || "Quick buy failed"); 
       }
   };
 
@@ -187,7 +211,7 @@ function DarkTokenCard({ tokenAddress }: { tokenAddress: `0x${string}` }) {
         </button>
         <div className="flex gap-4 mb-5 items-start">
           <div className="relative shrink-0">
-            <MediaRenderer src={tokenImage} className="w-[60px] h-[60px] rounded-2xl border border-[#FDDC11]/20 object-cover" />
+            <MediaRenderer src={image || tokenImage} className="w-[60px] h-[60px] rounded-2xl border border-[#FDDC11]/20 object-cover" />
           </div>
           <div style={{ flex: 1 }}>
             <h3 className="text-lg font-bold text-white mb-1 leading-tight">
@@ -318,10 +342,6 @@ export default function HomePage() {
     } 
   }, [allTokens]);
 
-  const filteredTokens = orderedTokens.filter(tokenAddr => 
-    tokenAddr.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
   // useWatchContractEvent her zaman çağrılmalı
   useWatchContractEvent({ 
     address: CONTRACT_ADDRESS, 
@@ -334,6 +354,10 @@ export default function HomePage() {
       } 
     }
   });
+
+  const filteredTokens = orderedTokens.filter(tokenAddr => 
+    tokenAddr.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -367,8 +391,8 @@ export default function HomePage() {
         value: parseEther("0.1") 
       });
       toast.loading("Confirm in wallet...", { id: 'tx' });
-    } catch (e) { 
-      toast.error("Transaction failed"); 
+    } catch (e: any) { 
+      toast.error(e?.message || "Transaction failed"); 
       toast.dismiss('tx'); 
     }
   };
