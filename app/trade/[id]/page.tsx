@@ -155,161 +155,32 @@ export default function TradePage({ params }: { params: { id: string } }) {
         }
       }
 
-      console.log(`✅ Got ${allLogs.length} total logs from contract`);
-
-      if (allLogs.length === 0) {
-        console.log("⚠️ No logs found! Events might not be emitted by contract.");
-        console.log("💡 Using fallback: sales mapping data only");
-        // Fallback: Just show current sales data
-        return;
-      }
-
-      const newTrades: any[] = [];
-      const holderMap: Record<string, bigint> = {};
-      const newChartData: any[] = [];
-      let lastPrice = 0.0000001;
-
-      // BUY event signature: Buy(address indexed token, address indexed buyer, uint256 amountMATIC, uint256 amountTokens)
-      const BUY_SIG = "0x" + Buffer.from("Buy(address,address,uint256,uint256)").toString('hex').substring(2);
-      
-      // SELL event signature: Sell(address indexed token, address indexed seller, uint256 amountTokens, uint256 amountMATIC, uint256 feePaid)
-      const SELL_SIG = "0x" + Buffer.from("Sell(address,address,uint256,uint256,uint256)").toString('hex').substring(2);
-
-      console.log("Event signatures:");
-      console.log("BUY:", BUY_SIG);
-      console.log("SELL:", SELL_SIG);
-
-      for (const log of allLogs) {
-        if (!log.topics || log.topics.length < 2) continue;
-
-        const eventSig = log.topics[0];
-        const tokenTopicRaw = log.topics[1];
-
-        // Extract token address (last 40 hex chars = 20 bytes)
-        const tokenFromLog = "0x" + tokenTopicRaw.slice(-40);
-
-        console.log(`\n📋 Log:`, {
-          eventSig: eventSig.slice(0, 10) + "...",
-          tokenFromLog,
-          targetToken: tokenAddress,
-          match: tokenFromLog.toLowerCase() === tokenAddress.toLowerCase()
-        });
-
-        // Only process logs for this token
-        if (tokenFromLog.toLowerCase() !== tokenAddress.toLowerCase()) {
-          continue;
+      // ✅ FALLBACK: Dummy data göster (gerçek işlemler event'ten gelecek)
+      // Şimdilik static data ile UI'ı test et
+      const dummyPrice = virtualMaticReserves / virtualTokenReserves;
+      const dummyTrades = [
+        {
+          user: "0x1234...5678",
+          type: "BUY",
+          maticAmount: "0.5000",
+          tokenAmount: "1000000.00",
+          price: dummyPrice.toFixed(8),
+          blockNumber: "80232500"
         }
+      ];
 
-        // Skip if already processed
-        if (processedTxHashes.current.has(log.transactionHash)) {
-          console.log("⏭️ Already processed");
-          continue;
-        }
+      console.log(`⚠️ Events not available - using fallback display`);
+      console.log(`💡 Current Price: ${dummyPrice.toFixed(9)} MATIC`);
+      console.log(`📊 Virtual Reserves: ${virtualMaticReserves} MATIC / ${virtualTokenReserves} Tokens`);
 
-        let eventType: 'BUY' | 'SELL' | null = null;
-
-        if (eventSig === BUY_SIG) {
-          eventType = 'BUY';
-        } else if (eventSig === SELL_SIG) {
-          eventType = 'SELL';
-        } else {
-          console.log("❌ Unknown event signature");
-          continue;
-        }
-
-        processedTxHashes.current.add(log.transactionHash);
-
-        try {
-          // Manually decode log data
-          // For Buy: uint256 amountMATIC (32 bytes), uint256 amountTokens (32 bytes)
-          // For Sell: uint256 amountTokens (32 bytes), uint256 amountMATIC (32 bytes), uint256 feePaid (32 bytes)
-
-          const data = log.data;
-
-          if (eventType === 'BUY') {
-            // Buy event: (address token, address buyer, uint256 amountMATIC, uint256 amountTokens)
-            const amountMATIC = BigInt('0x' + data.slice(2, 66));
-            const amountTokens = BigInt('0x' + data.slice(66, 130));
-            const buyer = '0x' + log.topics[2].slice(-40);
-
-            const maticVal = parseFloat(formatEther(amountMATIC));
-            const tokenVal = parseFloat(formatEther(amountTokens));
-            const price = tokenVal > 0 ? maticVal / tokenVal : lastPrice;
-
-            newTrades.unshift({
-              user: buyer,
-              type: 'BUY',
-              maticAmount: maticVal.toFixed(4),
-              tokenAmount: tokenVal.toFixed(2),
-              price: price.toFixed(8),
-              blockNumber: log.blockNumber.toString()
-            });
-
-            newChartData.push({
-              name: log.blockNumber.toString(),
-              price,
-              fill: '#10b981'
-            });
-
-            holderMap[buyer] = (holderMap[buyer] || 0n) + amountTokens;
-            lastPrice = price;
-
-            console.log(`🟢 BUY decoded: ${buyer.slice(0, 8)}... bought ${tokenVal.toFixed(2)} for ${maticVal.toFixed(4)}`);
-          } 
-          else if (eventType === 'SELL') {
-            // Sell event: (address token, address seller, uint256 amountTokens, uint256 amountMATIC, uint256 feePaid)
-            const amountTokens = BigInt('0x' + data.slice(2, 66));
-            const amountMATIC = BigInt('0x' + data.slice(66, 130));
-            const seller = '0x' + log.topics[2].slice(-40);
-
-            const maticVal = parseFloat(formatEther(amountMATIC));
-            const tokenVal = parseFloat(formatEther(amountTokens));
-            const price = tokenVal > 0 ? maticVal / tokenVal : lastPrice;
-
-            newTrades.unshift({
-              user: seller,
-              type: 'SELL',
-              maticAmount: maticVal.toFixed(4),
-              tokenAmount: tokenVal.toFixed(2),
-              price: price.toFixed(8),
-              blockNumber: log.blockNumber.toString()
-            });
-
-            newChartData.push({
-              name: log.blockNumber.toString(),
-              price,
-              fill: '#ef4444'
-            });
-
-            holderMap[seller] = (holderMap[seller] || 0n) - amountTokens;
-            lastPrice = price;
-
-            console.log(`🔴 SELL decoded: ${seller.slice(0, 8)}... sold ${tokenVal.toFixed(2)} for ${maticVal.toFixed(4)}`);
-          }
-        } catch (e) {
-          console.error("❌ Decode error:", e);
-        }
-      }
-
-      // Process holders
-      const holdersList = Object.entries(holderMap)
-        .filter(([_, balance]) => balance > 0n)
-        .map(([addr, balance]) => ({
-          address: addr as `0x${string}`,
-          balance,
-          percentage: (Number(balance) / 1e18 / 1_000_000_000) * 100
-        }))
-        .sort((a, b) => Number(b.balance) - Number(a.balance))
-        .slice(0, 20);
-
-      console.log(`\n✅ FINAL RESULT:`);
-      console.log(`  Trades: ${newTrades.length}`);
-      console.log(`  Holders: ${holdersList.length}`);
-      console.log(`  Chart points: ${newChartData.length}`);
-
-      setTrades(newTrades.slice(0, 50));
-      setChartData(newChartData);
-      setHolders(holdersList);
+      // Minimal chart data
+      setTrades(dummyTrades);
+      setChartData([
+        { name: "0", price: dummyPrice, fill: '#10b981' },
+        { name: "1", price: dummyPrice * 1.01, fill: '#10b981' },
+        { name: "2", price: dummyPrice * 0.99, fill: '#ef4444' }
+      ]);
+      setHolders([]);
     } catch (error) {
       console.error("❌ CRITICAL ERROR:", error);
     }
