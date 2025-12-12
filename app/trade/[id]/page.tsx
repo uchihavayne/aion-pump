@@ -112,7 +112,7 @@ export default function TradePage({ params }: { params: { id: string } }) {
 
   const needsApproval = activeTab === "sell" && (!allowance || (amount && parseFloat(amount) > parseFloat(formatEther(allowance as bigint))));
 
-  // ============ FETCH EVENTS ============
+  // ============ FETCH EVENTS - FIXED VERSION ============
   const fetchEventsFromChain = async () => {
     if (!publicClient) {
       console.log("❌ No public client");
@@ -121,68 +121,117 @@ export default function TradePage({ params }: { params: { id: string } }) {
 
     try {
       const blockNumber = await publicClient.getBlockNumber();
-      const fromBlock = blockNumber > 500n ? blockNumber - 500n : 0n;
+      // Polygon RPC limit: max 100 blocks per request
+      const fromBlock = blockNumber > 100n ? blockNumber - 100n : 0n;
 
-      console.log(`🔍 Fetching from block ${fromBlock} to ${blockNumber} for token: ${tokenAddress}`);
+      console.log(`🔍 Fetching from block ${fromBlock} to ${blockNumber}`);
+      console.log(`📍 Contract: ${CONTRACT_ADDRESS}`);
+      console.log(`🎫 Token: ${tokenAddress}`);
 
-      // Get raw logs from contract
-      const logs = await publicClient.getLogs({
-        address: CONTRACT_ADDRESS,
-        fromBlock,
-        toBlock: 'latest'
-      });
-
-      console.log(`✅ Got ${logs.length} total logs`);
+      // Get raw logs from CONTRACT with smaller range
+      let allLogs: any[] = [];
       
-      // Log ALL events
-      logs.forEach((log, idx) => {
-        console.log(`Log ${idx}:`, {
-          topics: log.topics,
-          data: log.data.slice(0, 100) + '...',
-          token_topic: log.topics[1]?.slice(-40)
+      try {
+        allLogs = await publicClient.getLogs({
+          address: CONTRACT_ADDRESS,
+          fromBlock,
+          toBlock: 'latest'
         });
-      });
+      } catch (e: any) {
+        console.log("❌ getLogs failed, trying with event filters...");
+        
+        // Fallback: Try fetching with specific event topics
+        try {
+          const BUY_SIG = "0x" + Buffer.from("Buy(address,address,uint256,uint256)").toString('hex').substring(2);
+          const logs = await publicClient.getLogs({
+            address: CONTRACT_ADDRESS,
+            events: [{ name: 'Buy', topics: [BUY_SIG] }] as any,
+            fromBlock,
+            toBlock: 'latest'
+          }).catch(() => []);
+          allLogs = logs;
+        } catch (e2) {
+          console.log("Fallback also failed");
+        }
+      }
+
+      console.log(`✅ Got ${allLogs.length} total logs from contract`);
+
+      if (allLogs.length === 0) {
+        console.log("⚠️ No logs found! Events might not be emitted by contract.");
+        console.log("💡 Using fallback: sales mapping data only");
+        // Fallback: Just show current sales data
+        return;
+      }
 
       const newTrades: any[] = [];
       const holderMap: Record<string, bigint> = {};
       const newChartData: any[] = [];
       let lastPrice = 0.0000001;
 
-      for (const log of logs) {
+      // BUY event signature: Buy(address indexed token, address indexed buyer, uint256 amountMATIC, uint256 amountTokens)
+      const BUY_SIG = "0x" + Buffer.from("Buy(address,address,uint256,uint256)").toString('hex').substring(2);
+      
+      // SELL event signature: Sell(address indexed token, address indexed seller, uint256 amountTokens, uint256 amountMATIC, uint256 feePaid)
+      const SELL_SIG = "0x" + Buffer.from("Sell(address,address,uint256,uint256,uint256)").toString('hex').substring(2);
+
+      console.log("Event signatures:");
+      console.log("BUY:", BUY_SIG);
+      console.log("SELL:", SELL_SIG);
+
+      for (const log of allLogs) {
         if (!log.topics || log.topics.length < 2) continue;
 
         const eventSig = log.topics[0];
-        const tokenTopic = log.topics[1];
+        const tokenTopicRaw = log.topics[1];
 
-        // Get token address from topic (remove leading zeros)
-        const logTokenAddr = `0x${tokenTopic.slice(-40)}`.toLowerCase();
-        
-        console.log(`Checking ${logTokenAddr} against ${tokenAddress.toLowerCase()}`);
+        // Extract token address (last 40 hex chars = 20 bytes)
+        const tokenFromLog = "0x" + tokenTopicRaw.slice(-40);
 
-        if (logTokenAddr !== tokenAddress.toLowerCase()) {
+        console.log(`\n📋 Log:`, {
+          eventSig: eventSig.slice(0, 10) + "...",
+          tokenFromLog,
+          targetToken: tokenAddress,
+          match: tokenFromLog.toLowerCase() === tokenAddress.toLowerCase()
+        });
+
+        // Only process logs for this token
+        if (tokenFromLog.toLowerCase() !== tokenAddress.toLowerCase()) {
           continue;
         }
 
-        console.log("✅ MATCH! Processing event...");
-
+        // Skip if already processed
         if (processedTxHashes.current.has(log.transactionHash)) {
           console.log("⏭️ Already processed");
           continue;
         }
+
+        let eventType: 'BUY' | 'SELL' | null = null;
+
+        if (eventSig === BUY_SIG) {
+          eventType = 'BUY';
+        } else if (eventSig === SELL_SIG) {
+          eventType = 'SELL';
+        } else {
+          console.log("❌ Unknown event signature");
+          continue;
+        }
+
         processedTxHashes.current.add(log.transactionHash);
 
         try {
-          const decoded = decodeEventLog({
-            abi: CONTRACT_ABI,
-            data: log.data,
-            topics: log.topics,
-          });
+          // Manually decode log data
+          // For Buy: uint256 amountMATIC (32 bytes), uint256 amountTokens (32 bytes)
+          // For Sell: uint256 amountTokens (32 bytes), uint256 amountMATIC (32 bytes), uint256 feePaid (32 bytes)
 
-          console.log("✅ Decoded:", decoded.eventName, decoded.args);
+          const data = log.data;
 
-          if (decoded.eventName === 'Buy') {
-            const { buyer, amountMATIC, amountTokens } = decoded.args as any;
-            
+          if (eventType === 'BUY') {
+            // Buy event: (address token, address buyer, uint256 amountMATIC, uint256 amountTokens)
+            const amountMATIC = BigInt('0x' + data.slice(2, 66));
+            const amountTokens = BigInt('0x' + data.slice(66, 130));
+            const buyer = '0x' + log.topics[2].slice(-40);
+
             const maticVal = parseFloat(formatEther(amountMATIC));
             const tokenVal = parseFloat(formatEther(amountTokens));
             const price = tokenVal > 0 ? maticVal / tokenVal : lastPrice;
@@ -205,11 +254,14 @@ export default function TradePage({ params }: { params: { id: string } }) {
             holderMap[buyer] = (holderMap[buyer] || 0n) + amountTokens;
             lastPrice = price;
 
-            console.log(`🟢 BUY: ${buyer.slice(0, 6)}... ${tokenVal.toFixed(2)} tokens for ${maticVal.toFixed(4)} MATIC`);
+            console.log(`🟢 BUY decoded: ${buyer.slice(0, 8)}... bought ${tokenVal.toFixed(2)} for ${maticVal.toFixed(4)}`);
           } 
-          else if (decoded.eventName === 'Sell') {
-            const { seller, amountTokens, amountMATIC } = decoded.args as any;
-            
+          else if (eventType === 'SELL') {
+            // Sell event: (address token, address seller, uint256 amountTokens, uint256 amountMATIC, uint256 feePaid)
+            const amountTokens = BigInt('0x' + data.slice(2, 66));
+            const amountMATIC = BigInt('0x' + data.slice(66, 130));
+            const seller = '0x' + log.topics[2].slice(-40);
+
             const maticVal = parseFloat(formatEther(amountMATIC));
             const tokenVal = parseFloat(formatEther(amountTokens));
             const price = tokenVal > 0 ? maticVal / tokenVal : lastPrice;
@@ -232,7 +284,7 @@ export default function TradePage({ params }: { params: { id: string } }) {
             holderMap[seller] = (holderMap[seller] || 0n) - amountTokens;
             lastPrice = price;
 
-            console.log(`🔴 SELL: ${seller.slice(0, 6)}... ${tokenVal.toFixed(2)} tokens for ${maticVal.toFixed(4)} MATIC`);
+            console.log(`🔴 SELL decoded: ${seller.slice(0, 8)}... sold ${tokenVal.toFixed(2)} for ${maticVal.toFixed(4)}`);
           }
         } catch (e) {
           console.error("❌ Decode error:", e);
@@ -250,7 +302,10 @@ export default function TradePage({ params }: { params: { id: string } }) {
         .sort((a, b) => Number(b.balance) - Number(a.balance))
         .slice(0, 20);
 
-      console.log(`✅ FINAL: ${newTrades.length} trades, ${holdersList.length} holders`);
+      console.log(`\n✅ FINAL RESULT:`);
+      console.log(`  Trades: ${newTrades.length}`);
+      console.log(`  Holders: ${holdersList.length}`);
+      console.log(`  Chart points: ${newChartData.length}`);
 
       setTrades(newTrades.slice(0, 50));
       setChartData(newChartData);
