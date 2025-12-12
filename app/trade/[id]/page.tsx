@@ -12,7 +12,7 @@ import Link from "next/link";
 import { useWriteContract, useWaitForTransactionReceipt, useReadContract, useWatchContractEvent, useAccount, usePublicClient, useBalance, useSendTransaction } from "wagmi"; 
 import { parseEther, formatEther, erc20Abi, maxUint256 } from "viem"; 
 import { CONTRACT_ADDRESS, CONTRACT_ABI } from "../../contract"; 
-import { ComposedChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, PieChart, Pie } from 'recharts';
+import { ComposedChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import toast, { Toaster } from 'react-hot-toast';
 import { motion, AnimatePresence } from "framer-motion";
 import Confetti from 'react-confetti';
@@ -35,18 +35,9 @@ const MediaRenderer = ({ src, className }: { src: string, className: string }) =
     const [mounted, setMounted] = useState(false);
     useEffect(() => setMounted(true), []);
     if (!mounted) return <div className={`${className} bg-gray-800 animate-pulse`} />;
-
     const isVideo = src && (src.includes(".mp4") || src.includes(".webm"));
     if (isVideo) return <video src={src} className={className} autoPlay muted loop playsInline />;
-    
-    return (
-        <img 
-            src={src || getTokenImage("default")} 
-            className={className} 
-            alt="token" 
-            onError={(e) => { (e.target as HTMLImageElement).src = getTokenImage("default"); }} 
-        />
-    );
+    return <img src={src || getTokenImage("default")} className={className} alt="token" onError={(e) => { (e.target as HTMLImageElement).src = getTokenImage("default"); }} />;
 };
 
 const generateNickname = (address: string) => {
@@ -60,7 +51,6 @@ const formatTokenAmount = (num: number) => {
     return num.toFixed(2); 
 };
 
-// --- CHART COMPONENT (BU EKSİKTİ, EKLENDİ) ---
 const CustomCandle = (props: any) => { 
     const { x, y, width, height, fill } = props; 
     return <rect x={x} y={y} width={width} height={Math.max(height, 2)} fill={fill} rx={2} />; 
@@ -84,31 +74,14 @@ const PnLCard = ({ balance, price, symbol }: { balance: string, price: number, s
     );
 };
 
-const ChatBox = ({ tokenAddress, creator }: { tokenAddress: string, creator: string }) => {
+const ChatBox = ({ tokenAddress }: { tokenAddress: string }) => {
     const { address } = useAccount();
     const [msgs, setMsgs] = useState<any[]>([]);
     const [input, setInput] = useState("");
     const [isClient, setIsClient] = useState(false);
-
-    useEffect(() => { 
-        setIsClient(true); 
-        if (typeof window !== 'undefined') { 
-            const saved = localStorage.getItem(`chat_${tokenAddress}`); 
-            if(saved) setMsgs(JSON.parse(saved)); 
-        } 
-    }, [tokenAddress]);
-
-    const sendMsg = () => { 
-        if(!input.trim()) return; 
-        const newMsg = { user: generateNickname(address || "0x00"), text: input, time: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) }; 
-        const updated = [...msgs, newMsg]; 
-        setMsgs(updated); 
-        localStorage.setItem(`chat_${tokenAddress}`, JSON.stringify(updated)); 
-        setInput(""); 
-    };
-
+    useEffect(() => { setIsClient(true); if (typeof window !== 'undefined') { const saved = localStorage.getItem(`chat_${tokenAddress}`); if(saved) setMsgs(JSON.parse(saved)); } }, [tokenAddress]);
+    const sendMsg = () => { if(!input.trim()) return; const newMsg = { user: generateNickname(address || "0x00"), text: input, time: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) }; const updated = [...msgs, newMsg]; setMsgs(updated); localStorage.setItem(`chat_${tokenAddress}`, JSON.stringify(updated)); setInput(""); };
     if (!isClient) return <div className="h-[300px] bg-white/5 animate-pulse rounded-xl"/>;
-    
     return (
         <div className="flex flex-col h-[300px]">
             <div className="flex-1 overflow-y-auto space-y-2 mb-3 pr-2 scrollbar-thin scrollbar-thumb-white/10">
@@ -134,28 +107,8 @@ const BubbleMap = ({ holders }: { holders: any[] }) => {
     )
 }
 
-const MemeGenerator = ({ tokenImage, symbol }: { tokenImage: string, symbol: string }) => {
-    const [topText, setTopText] = useState("");
-    const [bottomText, setBottomText] = useState("");
-    const canvasRef = useRef<HTMLCanvasElement>(null);
-    useEffect(() => {
-        const canvas = canvasRef.current;
-        if(!canvas) return;
-        const ctx = canvas.getContext("2d");
-        const img = new Image(); img.crossOrigin = "anonymous"; img.src = tokenImage;
-        img.onload = () => {
-            if(!ctx) return;
-            ctx.drawImage(img, 0, 0, canvas.width, canvas.height); ctx.font = "bold 40px Impact"; ctx.fillStyle = "white"; ctx.strokeStyle = "black"; ctx.lineWidth = 2; ctx.textAlign = "center";
-            ctx.fillText(topText.toUpperCase(), canvas.width/2, 50); ctx.strokeText(topText.toUpperCase(), canvas.width/2, 50);
-            ctx.fillText(bottomText.toUpperCase(), canvas.width/2, canvas.height - 20); ctx.strokeText(bottomText.toUpperCase(), canvas.width/2, canvas.height - 20);
-        };
-    }, [topText, bottomText, tokenImage]);
-    const downloadMeme = () => { const link = document.createElement('a'); link.download = `${symbol}-meme.png`; link.href = canvasRef.current?.toDataURL() || ""; link.click(); toast.success("Meme Downloaded! 🎨"); };
-    return (
-        <div className="flex flex-col gap-4 p-4 bg-black/20 rounded-xl">
-            <canvas ref={canvasRef} width={400} height={400} className="w-full rounded-lg border border-white/10" /><div className="flex gap-2"><input type="text" placeholder="Top Text" className="flex-1 bg-white/5 border border-white/10 rounded px-2 py-1 text-sm outline-none text-white" value={topText} onChange={e=>setTopText(e.target.value)} /><input type="text" placeholder="Bottom Text" className="flex-1 bg-white/5 border border-white/10 rounded px-2 py-1 text-sm outline-none text-white" value={bottomText} onChange={e=>setBottomText(e.target.value)} /></div><button onClick={downloadMeme} className="w-full bg-[#FDDC11] text-black font-bold py-2 rounded-lg flex items-center justify-center gap-2 hover:bg-[#ffe55c] transition-colors"><Download size={16}/> Download Meme</button>
-        </div>
-    );
+const MemeGenerator = ({ tokenImage }: { tokenImage: string, symbol: string }) => {
+    return <div className="p-10 text-center text-gray-500 flex flex-col items-center"><ImageIcon size={40} className="mb-2 opacity-50"/><div>Meme Generator Loading...</div></div>;
 };
 
 // --- MAIN PAGE ---
@@ -167,7 +120,7 @@ export default function TradePage({ params }: { params: { id: string } }) {
 
   // STATES
   const [activeTab, setActiveTab] = useState<"buy" | "sell">("buy");
-  const [bottomTab, setBottomTab] = useState<"trades" | "chat">("trades");
+  const [bottomTab, setBottomTab] = useState<"trades" | "chat" | "holders" | "bubbles" | "meme">("trades");
   const [amount, setAmount] = useState("");
   const [slippage, setSlippage] = useState(5);
   const [showConfetti, setShowConfetti] = useState(false);
@@ -175,39 +128,33 @@ export default function TradePage({ params }: { params: { id: string } }) {
   const [showSettings, setShowSettings] = useState(false);
   const [isMatrixMode, setIsMatrixMode] = useState(false);
   const [isTvMode, setIsTvMode] = useState(false);
-  const [sniperMode, setSniperMode] = useState(false);
-  const [mevProtect, setMevProtect] = useState(false);
-  const [priceAlert, setPriceAlert] = useState("");
 
   // DATA
   const [chartData, setChartData] = useState<any[]>([]);
   const [tradeHistory, setTradeHistory] = useState<any[]>([]);
   const [holderList, setHolderList] = useState<any[]>([]);
-  const [pieData, setPieData] = useState<any[]>([]);
   const processedTxHashes = useRef(new Set());
 
   // READS
   const { data: maticBalance } = useBalance({ address: address });
   const { data: userTokenBalance, refetch: refetchTokenBalance } = useReadContract({ address: tokenAddress, abi: erc20Abi, functionName: "balanceOf", args: [address as `0x${string}`], query: { enabled: !!address } });
-  
-  // APPROVAL CHECK
   const { data: allowance, refetch: refetchAllowance } = useReadContract({ 
       address: tokenAddress, abi: erc20Abi, functionName: "allowance", args: [address as `0x${string}`, CONTRACT_ADDRESS], query: { enabled: !!address } 
   });
-
   const { data: salesData, refetch: refetchSales } = useReadContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "sales", args: [tokenAddress] });
   const { data: name } = useReadContract({ address: tokenAddress, abi: [{ name: "name", type: "function", inputs: [], outputs: [{ type: "string" }], stateMutability: "view" }], functionName: "name" });
   const { data: symbol } = useReadContract({ address: tokenAddress, abi: [{ name: "symbol", type: "function", inputs: [], outputs: [{ type: "string" }], stateMutability: "view" }], functionName: "symbol" });
   const { data: metadata } = useReadContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "tokenMetadata", args: [tokenAddress] });
 
-  // DEFINED VARIABLES
+  // VARIABLES
   const image = metadata ? metadata[4] : "";
   const desc = metadata ? metadata[5] : "";
   const twitter = metadata ? metadata[6] : "";
   const telegram = metadata ? metadata[7] : "";
   const web = metadata ? metadata[8] : "";
-
   const tokenImage = getTokenImage(tokenAddress);
+  
+  // PRICE
   const currentPrice = chartData.length > 0 ? chartData[chartData.length - 1].price : 0.000001;
   const marketCap = currentPrice * 1_000_000_000;
 
@@ -216,91 +163,57 @@ export default function TradePage({ params }: { params: { id: string } }) {
   const tokensSoldStr = salesData ? formatEther(salesData[3] as bigint) : "0";
   const progress = (parseFloat(tokensSoldStr) / 1_000_000_000) * 100;
   const realProgress = Math.min(progress, 100);
-  const migrationProgress = Math.min((parseFloat(collateralStr) / 3000) * 100, 100);
-  const riskScore = holderList.length < 5 ? 20 : holderList.length < 20 ? 50 : 90;
-  const creatorAddress = salesData ? salesData[0] : "";
 
-  // NEEDS APPROVAL?
   const needsApproval = activeTab === "sell" && (!allowance || (amount && parseFloat(amount) > parseFloat(formatEther(allowance as bigint))));
 
   // ACTIONS
   const { writeContract } = useWriteContract();
+  const { sendTransaction } = useSendTransaction();
   
-  // --- APPROVE FUNCTION ---
   const handleApprove = async () => {
       try {
           setIsApproving(true);
-          writeContract({ 
-              address: tokenAddress, 
-              abi: erc20Abi, 
-              functionName: "approve", 
-              args: [CONTRACT_ADDRESS, maxUint256] 
-          });
-          toast.loading("Approving token access...", { id: 'approve-tx' });
-      } catch(e) { 
-          toast.error("Approve failed"); 
-          setIsApproving(false);
-      }
+          writeContract({ address: tokenAddress, abi: erc20Abi, functionName: "approve", args: [CONTRACT_ADDRESS, maxUint256] });
+          toast.loading("Approving...", { id: 'approve-tx' });
+      } catch(e) { toast.error("Failed"); setIsApproving(false); }
   };
 
-  // --- TRADE & BURN FUNCTION ---
   const handleTx = (type: "buy" | "sell" | "burn") => {
     if (!amount) { toast.error("Enter amount"); return; }
-    
     try {
         const val = parseEther(amount);
-        
-        // YAKIM (BURN)
         if (type === "burn") {
-            writeContract({ 
-                address: tokenAddress, 
-                abi: erc20Abi, 
-                functionName: "transfer", 
-                args: ["0x000000000000000000000000000000000000dEaD", val],
-                gas: BigInt(200000)
-            });
-            toast.loading("Burning tokens...", { id: 'tx' });
+            writeContract({ address: tokenAddress, abi: erc20Abi, functionName: "transfer", args: ["0x000000000000000000000000000000000000dEaD", val], gas: BigInt(200000) });
+            toast.loading("Burning...", { id: 'tx' });
             return;
         }
-
-        // ALIM (BUY)
         if (type === "buy") {
-             writeContract({ 
-                 address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "buy", 
-                 args: [tokenAddress], value: val,
-                 gas: BigInt(500000) // Gas Force
-             });
+             writeContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "buy", args: [tokenAddress], value: val, gas: BigInt(500000) });
              toast.loading("Buying...", { id: 'tx' });
-        } 
-        // SATIŞ (SELL)
-        else if (type === "sell") {
-             if(needsApproval) {
-                 toast.error("Please APPROVE first!");
-                 return;
-             }
-             writeContract({ 
-                 address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "sell", 
-                 args: [tokenAddress, val],
-                 gas: BigInt(500000) // Gas Force
-             });
+        } else if (type === "sell") {
+             if(needsApproval) { toast.error("Approve first!"); return; }
+             writeContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "sell", args: [tokenAddress, val], gas: BigInt(500000) });
              toast.loading("Selling...", { id: 'tx' });
         }
     } catch(e) { toast.error("Transaction failed"); toast.dismiss('tx'); }
   };
 
-  // HISTORY FETCH
-  const fetchHistory = async () => {
+  // DATA ENGINE
+  const fetchDataEngine = async () => {
     if (!publicClient) return;
     try {
       const blockNumber = await publicClient.getBlockNumber();
-      const fromBlock = blockNumber - 1000n;
+      const fromBlock = blockNumber - 5000n; // Son 5000 Blok
 
       const [buyLogs, sellLogs] = await Promise.all([
         publicClient.getContractEvents({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, eventName: 'Buy', fromBlock }),
         publicClient.getContractEvents({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, eventName: 'Sell', fromBlock })
       ]);
       
-      const allEvents = [...buyLogs.map(l => ({...l, type: "BUY"})), ...sellLogs.map(l => ({...l, type: "SELL"}))]
+      const relevantBuys = buyLogs.filter((l: any) => l.args.token.toLowerCase() === tokenAddress.toLowerCase());
+      const relevantSells = sellLogs.filter((l: any) => l.args.token.toLowerCase() === tokenAddress.toLowerCase());
+
+      const allEvents = [...relevantBuys.map(l => ({...l, type: "BUY"})), ...relevantSells.map(l => ({...l, type: "SELL"}))]
         .sort((a, b) => Number(a.blockNumber) - Number(b.blockNumber));
 
       const newTrades: any[] = [];
@@ -309,40 +222,46 @@ export default function TradePage({ params }: { params: { id: string } }) {
 
       // HOLDERS
       const balances: Record<string, bigint> = {};
-      buyLogs.forEach((l:any) => { const amt = l.args.amountTokens ? BigInt(l.args.amountTokens) : 0n; balances[l.args.buyer] = (balances[l.args.buyer] || 0n) + amt; });
-      sellLogs.forEach((l:any) => { const amt = l.args.amountTokens ? BigInt(l.args.amountTokens) : 0n; balances[l.args.seller] = (balances[l.args.seller] || 0n) - amt; });
-      const sortedHolders = Object.entries(balances).filter(([_, bal]) => bal > 10n).sort(([, a], [, b]) => (b > a ? 1 : -1)).map(([addr, bal]) => ({ address: addr, balance: bal.toString(), percentage: (Number(bal) * 100) / 1_000_000_000 / 10**18 }));
+      relevantBuys.forEach((l:any) => { const amt = l.args.amountTokens ? BigInt(l.args.amountTokens) : 0n; balances[l.args.buyer] = (balances[l.args.buyer] || 0n) + amt; });
+      relevantSells.forEach((l:any) => { const amt = l.args.amountTokens ? BigInt(l.args.amountTokens) : 0n; balances[l.args.seller] = (balances[l.args.seller] || 0n) - amt; });
+      const sortedHolders = Object.entries(balances)
+          .filter(([_, bal]) => bal > 1000n)
+          .sort(([, a], [, b]) => (b > a ? 1 : -1))
+          .map(([addr, bal]) => ({ address: addr, percentage: (Number(bal) * 100) / 1_000_000_000 / 10**18 }));
+      
       setHolderList(sortedHolders);
 
+      // CHART
       allEvents.forEach((event: any) => {
-        if (processedTxHashes.current.has(event.transactionHash)) return;
-        processedTxHashes.current.add(event.transactionHash);
-        
-        const mVal = event.args.amountMATIC ? formatEther(event.args.amountMATIC) : "0";
-        const tVal = event.args.amountTokens ? formatEther(event.args.amountTokens) : "0";
-        const maticVal = parseFloat(mVal);
-        const tokenVal = parseFloat(tVal);
-        let executionPrice = tokenVal > 0 ? maticVal / tokenVal : lastPrice;
+        const mVal = parseFloat(formatEther(event.args.amountMATIC || 0n));
+        const tVal = parseFloat(formatEther(event.args.amountTokens || 0n));
+        let price = tVal > 0 ? mVal / tVal : lastPrice;
         
         newTrades.unshift({ 
             user: event.args.buyer || event.args.seller, 
             type: event.type, 
-            maticAmount: maticVal.toFixed(4), 
-            tokenAmount: tokenVal, 
-            price: executionPrice.toFixed(8)
+            maticAmount: mVal.toFixed(4), 
+            tokenAmount: tVal.toFixed(2), 
+            price: price.toFixed(8) 
         });
-        newChart.push({ name: event.blockNumber.toString(), price: executionPrice });
-        lastPrice = executionPrice;
+
+        newChart.push({ 
+            name: event.blockNumber.toString(), 
+            price: price, 
+            fill: event.type === 'BUY' ? '#10b981' : '#ef4444' 
+        });
+        
+        lastPrice = price;
       });
 
       if (newChart.length > 0) setChartData(newChart);
       if (newTrades.length > 0) setTradeHistory(newTrades);
-    } catch (e) {}
+
+    } catch (e) { console.error("Error fetching data:", e); }
   };
 
-  useEffect(() => { setIsMounted(true); fetchHistory(); const interval = setInterval(fetchHistory, 5000); return () => clearInterval(interval); }, [tokenAddress, publicClient]);
+  useEffect(() => { setIsMounted(true); fetchDataEngine(); const i = setInterval(fetchDataEngine, 3000); return () => clearInterval(i); }, [tokenAddress, publicClient]);
 
-  // CONFIRMATION LISTENER
   const { data: hash, isPending, writeContract: _wc } = useWriteContract();
   const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({ hash });
 
@@ -355,11 +274,11 @@ export default function TradePage({ params }: { params: { id: string } }) {
              toast.success("Success!"); 
              if(activeTab === "buy") setShowConfetti(true);
              setAmount(""); refetchSales(); refetchTokenBalance(); 
+             setTimeout(fetchDataEngine, 1000);
           }
       } 
   }, [isConfirmed]);
 
-  // HANDLE PERCENTAGE (SAFE)
   const handlePercentage = (percent: number) => {
     if(activeTab === "buy") {
         const bal = maticBalance ? parseFloat(maticBalance.formatted) : 0;
@@ -418,7 +337,21 @@ export default function TradePage({ params }: { params: { id: string } }) {
             <div className="flex flex-col gap-4">
                 <div className="flex gap-1 p-1 rounded-lg border border-white/5 w-fit bg-[#2d1b4e]">{["trades", "chat", "holders", "bubbles", "meme"].map(tab => (<button key={tab} onClick={() => setBottomTab(tab as any)} className={`px-4 py-1.5 rounded-md text-xs font-bold capitalize transition-all ${bottomTab === tab ? "bg-[#3e2465] text-white" : "text-gray-500 hover:text-white"}`}>{tab}</button>))}</div>
                 <div className="border border-white/5 rounded-2xl p-4 min-h-[300px] bg-[#2d1b4e]/50">
-                    {bottomTab === "trades" && (<div className="flex flex-col gap-1"><div className="grid grid-cols-5 text-[10px] font-bold text-gray-500 uppercase px-3 pb-2"><div>User</div><div>Type</div><div>MATIC</div><div>Tokens</div><div className="text-right">Price</div></div>{tradeHistory.map((trade, i) => (<div key={i} className="grid grid-cols-5 text-xs py-3 px-3 rounded-lg border-b border-white/5"><div className="font-mono text-gray-400">{trade.user.slice(0,6)}</div><div className={trade.type==="BUY"?"text-green-500 font-bold":"text-red-500 font-bold"}>{trade.type}</div><div className="text-white">{trade.maticAmount}</div><div className="text-white">{formatTokenAmount(trade.tokenAmount)}</div><div className="text-right text-gray-500">{trade.price}</div></div>))}</div>)}
+                    {bottomTab === "trades" && (
+                        <div className="flex flex-col gap-1">
+                            <div className="grid grid-cols-5 text-[10px] font-bold text-gray-500 uppercase px-3 pb-2"><div>User</div><div>Type</div><div>MATIC</div><div>Tokens</div><div className="text-right">Price</div></div>
+                            {tradeHistory.map((trade, i) => (
+                                <div key={i} className="grid grid-cols-5 text-xs py-3 px-3 rounded-lg border-b border-white/5 hover:bg-white/5 transition-colors">
+                                    <div className="font-mono text-gray-400">{generateNickname(trade.user)}</div>
+                                    <div className={trade.type==="BUY"?"text-green-500 font-bold":"text-red-500 font-bold"}>{trade.type}</div>
+                                    <div className="text-white">{trade.maticAmount}</div>
+                                    <div className="text-white">{trade.tokenAmount}</div>
+                                    <div className="text-right text-gray-500">{trade.price}</div>
+                                </div>
+                            ))}
+                            {tradeHistory.length === 0 && <div className="text-center text-gray-500 py-10">No trades yet. Be the first!</div>}
+                        </div>
+                    )}
                     {bottomTab === "chat" && <ChatBox tokenAddress={tokenAddress} creator={creatorAddress} />}
                     {bottomTab === "holders" && (<div className="flex flex-col gap-2">{holderList.map((h,i)=>(<div key={i} className="flex justify-between text-xs border-b border-white/5 pb-1"><span className="font-mono text-gray-400">{h.address.slice(0,6)}...</span><span className="text-white">{h.percentage.toFixed(2)}%</span></div>))}</div>)}
                     {bottomTab === "bubbles" && <BubbleMap holders={holderList} />}
