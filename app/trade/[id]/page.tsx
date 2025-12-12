@@ -12,7 +12,7 @@ import Link from "next/link";
 import { useWriteContract, useWaitForTransactionReceipt, useReadContract, useWatchContractEvent, useAccount, usePublicClient, useBalance, useSendTransaction } from "wagmi"; 
 import { parseEther, formatEther, erc20Abi, maxUint256 } from "viem"; 
 import { CONTRACT_ADDRESS, CONTRACT_ABI } from "../../contract"; 
-import { ComposedChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, Area, AreaChart } from 'recharts';
+import { ComposedChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, PieChart, Pie } from 'recharts';
 import toast, { Toaster } from 'react-hot-toast';
 import { motion, AnimatePresence } from "framer-motion";
 import Confetti from 'react-confetti';
@@ -75,8 +75,7 @@ const PnLCard = ({ balance, price, symbol }: { balance: string, price: number, s
     );
 };
 
-// FIX: Safe Chat Component to prevent hydration errors
-const ChatBox = ({ tokenAddress }: { tokenAddress: string }) => {
+const ChatBox = ({ tokenAddress, creator }: { tokenAddress: string, creator: string }) => {
     const { address } = useAccount();
     const [msgs, setMsgs] = useState<any[]>([]);
     const [input, setInput] = useState("");
@@ -166,7 +165,6 @@ export default function TradePage({ params }: { params: { id: string } }) {
       address: tokenAddress, abi: erc20Abi, functionName: "allowance", args: [address as `0x${string}`, CONTRACT_ADDRESS], query: { enabled: !!address } 
   });
 
-  // IMPORTANT: Read sales data directly to show curve progress even without events
   const { data: salesData, refetch: refetchSales } = useReadContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "sales", args: [tokenAddress], query: { refetchInterval: 3000 } });
   const { data: name } = useReadContract({ address: tokenAddress, abi: [{ name: "name", type: "function", inputs: [], outputs: [{ type: "string" }], stateMutability: "view" }], functionName: "name" });
   const { data: symbol } = useReadContract({ address: tokenAddress, abi: [{ name: "symbol", type: "function", inputs: [], outputs: [{ type: "string" }], stateMutability: "view" }], functionName: "symbol" });
@@ -182,19 +180,17 @@ export default function TradePage({ params }: { params: { id: string } }) {
   const creatorAddress = salesData ? salesData[0] : "";
 
   // ---------------------------------------------------------
-  // CRITICAL FIX: PRICE & MC CALCULATION (DIRECT FROM CONTRACT)
+  // STATS CALCULATION
   // ---------------------------------------------------------
   const collateralStr = salesData ? formatEther(salesData[1] as bigint) : "0";
   const tokensSoldStr = salesData ? formatEther(salesData[3] as bigint) : "0";
   const collateralVal = parseFloat(collateralStr);
   const tokensSoldVal = parseFloat(tokensSoldStr);
 
-  // Bonding Curve Progress
   const progress = (tokensSoldVal / 1_000_000_000) * 100;
   const realProgress = Math.min(progress, 100);
   
-  // Simple Price Calculation based on current state (Matic Reserve / Tokens Sold)
-  // This provides a price even if history fetch fails
+  // FIX: Fiyat Hesaplama ve Değişken İsmi Çakışması Giderildi
   const estimatedPrice = tokensSoldVal > 0 ? collateralVal / tokensSoldVal : 0.0000001;
   const currentPrice = chartData.length > 0 ? chartData[chartData.length - 1].price : estimatedPrice;
   const marketCap = currentPrice * 1_000_000_000;
@@ -233,12 +229,12 @@ export default function TradePage({ params }: { params: { id: string } }) {
     } catch(e) { toast.error("Transaction failed"); toast.dismiss('tx'); }
   };
 
-  // DATA ENGINE (FIXED RPC LIMIT & ERROR HANDLING)
+  // DATA ENGINE (FIXED RPC LIMIT)
   const fetchDataEngine = async () => {
     if (!publicClient) return;
     try {
       const blockNumber = await publicClient.getBlockNumber();
-      // FIX: Reduced block range to 990 to be safe under the 1000 limit of most public RPCs
+      // FIX: RPC Limitini aşmamak için son 990 blok (güvenli bölge)
       const fromBlock = blockNumber - 990n; 
 
       const [buyLogs, sellLogs] = await Promise.all([
@@ -262,13 +258,12 @@ export default function TradePage({ params }: { params: { id: string } }) {
       relevantBuys.forEach((l:any) => { const amt = l.args.amountTokens ? BigInt(l.args.amountTokens) : 0n; balances[l.args.buyer] = (balances[l.args.buyer] || 0n) + amt; });
       relevantSells.forEach((l:any) => { const amt = l.args.amountTokens ? BigInt(l.args.amountTokens) : 0n; balances[l.args.seller] = (balances[l.args.seller] || 0n) - amt; });
       const sortedHolders = Object.entries(balances)
-          .filter(([_, bal]) => bal > 1000n) // Filtre: Sadece bakiyesi olanlar
+          .filter(([_, bal]) => bal > 100n) 
           .sort(([, a], [, b]) => (b > a ? 1 : -1))
           .map(([addr, bal]) => ({ address: addr, percentage: (Number(bal) * 100) / 1_000_000_000 / 10**18 }));
       
       setHolderList(sortedHolders);
 
-      // CHART
       allEvents.forEach((event: any) => {
         const mVal = parseFloat(formatEther(event.args.amountMATIC || 0n));
         const tVal = parseFloat(formatEther(event.args.amountTokens || 0n));
@@ -302,7 +297,7 @@ export default function TradePage({ params }: { params: { id: string } }) {
       fetchDataEngine(); 
       const interval = setInterval(fetchDataEngine, 5000); 
       return () => clearInterval(interval); 
-  }, [tokenAddress, publicClient, userTokenBalance]); // Depend on balance too
+  }, [tokenAddress, publicClient, userTokenBalance]); 
 
   const { data: hash, isPending, writeContract: _wc } = useWriteContract();
   const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({ hash });
@@ -316,7 +311,6 @@ export default function TradePage({ params }: { params: { id: string } }) {
              toast.success("Success!"); 
              if(activeTab === "buy") setShowConfetti(true);
              setAmount(""); refetchSales(); refetchTokenBalance(); 
-             // Manually add trade to UI immediately (Optimistic Update)
              setTimeout(fetchDataEngine, 2000);
           }
       } 
@@ -333,6 +327,9 @@ export default function TradePage({ params }: { params: { id: string } }) {
         setAmount((bal * safeFactor).toFixed(4));
     }
   };
+
+  const handleTip = async () => { if(!creatorAddress) return; try { await sendTransaction({ to: creatorAddress, value: parseEther("1") }); toast.success("Tip sent!"); } catch(e) { toast.error("Failed"); } };
+  const copyReferral = () => { navigator.clipboard.writeText(`${window.location.origin}/trade/${tokenAddress}`); toast.success("Copied!"); };
 
   if (!isMounted) return <div className="min-h-screen bg-[#0a0e27] flex items-center justify-center text-[#FDDC11] font-mono animate-pulse">Loading Trade...</div>;
 
@@ -374,7 +371,8 @@ export default function TradePage({ params }: { params: { id: string } }) {
 
             <div className="border border-white/10 rounded-2xl p-5 h-[450px] bg-[#2d1b4e]/50 relative group">
                 <div className="absolute top-4 right-4 z-10"><button onClick={fetchDataEngine} className="p-2 bg-white/5 rounded-lg hover:bg-white/10"><RefreshCw size={14} /></button></div>
-                <div className="flex justify-between items-center mb-4"><div className="flex gap-4"><div className="text-lg font-bold">{calculatedPrice.toFixed(9)} MATIC</div><div className="text-lg font-bold text-[#FDDC11]">MC: {(marketCap).toLocaleString()} MATIC</div></div></div>
+                {/* FIX: calculatedPrice yerine currentPrice kullanıldı */}
+                <div className="flex justify-between items-center mb-4"><div className="flex gap-4"><div className="text-lg font-bold">{currentPrice.toFixed(9)} MATIC</div><div className="text-lg font-bold text-[#FDDC11]">MC: {(marketCap).toLocaleString()} MATIC</div></div></div>
                 <ResponsiveContainer width="100%" height="90%"><ComposedChart data={chartData}><YAxis domain={['auto', 'auto']} hide /><Tooltip contentStyle={{ backgroundColor: '#181a20', border: '1px solid #333' }} /><Bar dataKey="price" shape={<CustomCandle />} isAnimationActive={false}>{chartData.map((e, i) => (<Cell key={i} fill={e.fill} />))}</Bar></ComposedChart></ResponsiveContainer>
                 {chartData.length === 0 && <div className="absolute inset-0 flex items-center justify-center text-gray-600 text-sm">No trades yet. Chart waiting...</div>}
             </div>
@@ -407,7 +405,7 @@ export default function TradePage({ params }: { params: { id: string } }) {
 
         {/* RIGHT COLUMN: TRADE */}
         <div className="lg:col-span-4 space-y-6">
-            {userTokenBalance ? userTokenBalance > 0n && <PnLCard balance={formatEther(userTokenBalance)} price={calculatedPrice} symbol={symbol?.toString() || "TKN"} /> : null}
+            {userTokenBalance ? userTokenBalance > 0n && <PnLCard balance={formatEther(userTokenBalance)} price={currentPrice} symbol={symbol?.toString() || "TKN"} /> : null}
             
             <div className="border border-white/10 rounded-2xl p-5 sticky top-24 bg-[#2d1b4e]">
                 <div className="grid grid-cols-2 gap-3 mb-6">
