@@ -1,6 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  reactStrictMode: false, // Bunu false yapın, çünkü strict mode hook'ları iki kere çalıştırır
+  reactStrictMode: false, // BURASI ÇOK ÖNEMLİ! false yapın
   typescript: {
     ignoreBuildErrors: true,
   },
