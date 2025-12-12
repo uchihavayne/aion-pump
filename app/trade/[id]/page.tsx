@@ -54,12 +54,23 @@ const generateNickname = (address: string) => {
     return `User ${address.slice(2,6)}`;
 };
 
-const formatTokenAmount = (num: number) => { if (num >= 1000000) return (num / 1000000).toFixed(2) + "M"; if (num >= 1000) return (num / 1000).toFixed(2) + "k"; return num.toFixed(2); };
+const formatTokenAmount = (num: number) => { 
+    if (num >= 1000000) return (num / 1000000).toFixed(2) + "M"; 
+    if (num >= 1000) return (num / 1000).toFixed(2) + "k"; 
+    return num.toFixed(2); 
+};
+
+// --- CHART COMPONENT (MISSING PART ADDED) ---
+const CustomCandle = (props: any) => { 
+    const { x, y, width, height, fill } = props; 
+    return <rect x={x} y={y} width={width} height={Math.max(height, 2)} fill={fill} rx={2} />; 
+};
 
 // --- COMPONENTS ---
 const PnLCard = ({ balance, price, symbol }: { balance: string, price: number, symbol: string }) => {
     const bal = parseFloat(balance);
     const value = bal * price;
+    // Deterministic entry price to avoid hydration mismatch
     const entryPrice = price * 0.8; 
     const pnl = (price - entryPrice) * bal;
     const pnlPercent = ((price - entryPrice) / entryPrice) * 100;
@@ -79,9 +90,26 @@ const ChatBox = ({ tokenAddress }: { tokenAddress: string }) => {
     const [msgs, setMsgs] = useState<any[]>([]);
     const [input, setInput] = useState("");
     const [isClient, setIsClient] = useState(false);
-    useEffect(() => { setIsClient(true); if (typeof window !== 'undefined') { const saved = localStorage.getItem(`chat_${tokenAddress}`); if(saved) setMsgs(JSON.parse(saved)); } }, [tokenAddress]);
-    const sendMsg = () => { if(!input.trim()) return; const newMsg = { user: generateNickname(address || "0x00"), text: input, time: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) }; const updated = [...msgs, newMsg]; setMsgs(updated); localStorage.setItem(`chat_${tokenAddress}`, JSON.stringify(updated)); setInput(""); };
+
+    useEffect(() => { 
+        setIsClient(true); 
+        if (typeof window !== 'undefined') { 
+            const saved = localStorage.getItem(`chat_${tokenAddress}`); 
+            if(saved) setMsgs(JSON.parse(saved)); 
+        } 
+    }, [tokenAddress]);
+
+    const sendMsg = () => { 
+        if(!input.trim()) return; 
+        const newMsg = { user: generateNickname(address || "0x00"), text: input, time: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) }; 
+        const updated = [...msgs, newMsg]; 
+        setMsgs(updated); 
+        localStorage.setItem(`chat_${tokenAddress}`, JSON.stringify(updated)); 
+        setInput(""); 
+    };
+
     if (!isClient) return <div className="h-[300px] bg-white/5 animate-pulse rounded-xl"/>;
+    
     return (
         <div className="flex flex-col h-[300px]">
             <div className="flex-1 overflow-y-auto space-y-2 mb-3 pr-2 scrollbar-thin scrollbar-thumb-white/10">
@@ -104,7 +132,8 @@ export default function TradePage({ params }: { params: { id: string } }) {
   const [bottomTab, setBottomTab] = useState<"trades" | "chat">("trades");
   const [amount, setAmount] = useState("");
   const [showConfetti, setShowConfetti] = useState(false);
-  
+  const [isApproving, setIsApproving] = useState(false);
+
   // DATA
   const [chartData, setChartData] = useState<any[]>([]);
   const [tradeHistory, setTradeHistory] = useState<any[]>([]);
@@ -113,29 +142,24 @@ export default function TradePage({ params }: { params: { id: string } }) {
   // READS
   const { data: maticBalance } = useBalance({ address: address });
   const { data: userTokenBalance, refetch: refetchTokenBalance } = useReadContract({ address: tokenAddress, abi: erc20Abi, functionName: "balanceOf", args: [address as `0x${string}`], query: { enabled: !!address } });
-  
-  // APPROVAL CHECK
   const { data: allowance, refetch: refetchAllowance } = useReadContract({ 
       address: tokenAddress, abi: erc20Abi, functionName: "allowance", args: [address as `0x${string}`, CONTRACT_ADDRESS], query: { enabled: !!address } 
   });
-
   const { data: salesData, refetch: refetchSales } = useReadContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "sales", args: [tokenAddress] });
   const { data: name } = useReadContract({ address: tokenAddress, abi: [{ name: "name", type: "function", inputs: [], outputs: [{ type: "string" }], stateMutability: "view" }], functionName: "name" });
   const { data: symbol } = useReadContract({ address: tokenAddress, abi: [{ name: "symbol", type: "function", inputs: [], outputs: [{ type: "string" }], stateMutability: "view" }], functionName: "symbol" });
   const { data: metadata } = useReadContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "tokenMetadata", args: [tokenAddress] });
 
-  // DEFINED VARIABLES
+  // VARIABLES
   const image = metadata ? metadata[4] : "";
   const tokenImage = getTokenImage(tokenAddress);
   const currentPrice = chartData.length > 0 ? chartData[chartData.length - 1].price : 0.000001;
   const marketCap = currentPrice * 1_000_000_000;
 
-  // PROGRESS
   const collateralStr = salesData ? formatEther(salesData[1] as bigint) : "0";
   const tokensSoldStr = salesData ? formatEther(salesData[3] as bigint) : "0";
   const progress = (parseFloat(tokensSoldStr) / 1_000_000_000) * 100;
   const realProgress = Math.min(progress, 100);
-  const creatorAddress = salesData ? salesData[0] : "";
 
   // NEEDS APPROVAL?
   const needsApproval = activeTab === "sell" && (!allowance || (amount && parseFloat(amount) > parseFloat(formatEther(allowance as bigint))));
@@ -143,47 +167,29 @@ export default function TradePage({ params }: { params: { id: string } }) {
   // ACTIONS
   const { writeContract } = useWriteContract();
   
-  // APPROVE
   const handleApprove = async () => {
       try {
-          writeContract({ 
-              address: tokenAddress, abi: erc20Abi, functionName: "approve", 
-              args: [CONTRACT_ADDRESS, maxUint256] 
-          });
-          toast.loading("Approving...", { id: 'tx' });
-      } catch(e) { toast.error("Approve failed"); }
+          setIsApproving(true);
+          writeContract({ address: tokenAddress, abi: erc20Abi, functionName: "approve", args: [CONTRACT_ADDRESS, maxUint256] });
+          toast.loading("Approving...", { id: 'approve-tx' });
+      } catch(e) { toast.error("Approve failed"); setIsApproving(false); }
   };
 
-  // TRANSACTION HANDLER (BUY / SELL / BURN)
   const handleTx = (type: "buy" | "sell" | "burn") => {
     if (!amount) { toast.error("Enter amount"); return; }
-    
     try {
         const val = parseEther(amount);
-        
         if (type === "burn") {
-            writeContract({ 
-                address: tokenAddress, abi: erc20Abi, functionName: "transfer", 
-                args: ["0x000000000000000000000000000000000000dEaD", val],
-                gas: BigInt(150000)
-            });
+            writeContract({ address: tokenAddress, abi: erc20Abi, functionName: "transfer", args: ["0x000000000000000000000000000000000000dEaD", val], gas: BigInt(150000) });
             toast.loading("Burning...", { id: 'tx' });
             return;
         }
-
         if (type === "buy") {
-             writeContract({ 
-                 address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "buy", 
-                 args: [tokenAddress], value: val, gas: BigInt(500000) 
-             });
+             writeContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "buy", args: [tokenAddress], value: val, gas: BigInt(500000) });
              toast.loading("Buying...", { id: 'tx' });
-        } 
-        else if (type === "sell") {
-             if(needsApproval) { toast.error("Approve first!"); return; }
-             writeContract({ 
-                 address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "sell", 
-                 args: [tokenAddress, val], gas: BigInt(500000) 
-             });
+        } else if (type === "sell") {
+             if(needsApproval) { toast.error("Please APPROVE first!"); return; }
+             writeContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "sell", args: [tokenAddress, val], gas: BigInt(500000) });
              toast.loading("Selling...", { id: 'tx' });
         }
     } catch(e) { toast.error("Failed"); toast.dismiss('tx'); }
@@ -194,16 +200,13 @@ export default function TradePage({ params }: { params: { id: string } }) {
     if (!publicClient) return;
     try {
       const blockNumber = await publicClient.getBlockNumber();
-      const fromBlock = blockNumber - 1000n; // RPC Limit Fix
-
+      const fromBlock = blockNumber - 1000n;
       const [buyLogs, sellLogs] = await Promise.all([
         publicClient.getContractEvents({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, eventName: 'Buy', fromBlock }),
         publicClient.getContractEvents({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, eventName: 'Sell', fromBlock })
       ]);
+      const allEvents = [...buyLogs.map(l => ({...l, type: "BUY"})), ...sellLogs.map(l => ({...l, type: "SELL"}))].sort((a, b) => Number(a.blockNumber) - Number(b.blockNumber));
       
-      const allEvents = [...buyLogs.map(l => ({...l, type: "BUY"})), ...sellLogs.map(l => ({...l, type: "SELL"}))]
-        .sort((a, b) => Number(a.blockNumber) - Number(b.blockNumber));
-
       const newTrades: any[] = [];
       const newChart: any[] = [];
       let lastPrice = 0.0000001;
@@ -218,13 +221,7 @@ export default function TradePage({ params }: { params: { id: string } }) {
         const tokenVal = parseFloat(tVal);
         let executionPrice = tokenVal > 0 ? maticVal / tokenVal : lastPrice;
         
-        newTrades.unshift({ 
-            user: event.args.buyer || event.args.seller, 
-            type: event.type, 
-            maticAmount: maticVal.toFixed(4), 
-            tokenAmount: tokenVal, 
-            price: executionPrice.toFixed(8)
-        });
+        newTrades.unshift({ user: event.args.buyer || event.args.seller, type: event.type, maticAmount: maticVal.toFixed(4), tokenAmount: tokenVal, price: executionPrice.toFixed(8) });
         newChart.push({ name: event.blockNumber.toString(), price: executionPrice });
         lastPrice = executionPrice;
       });
@@ -234,16 +231,16 @@ export default function TradePage({ params }: { params: { id: string } }) {
     } catch (e) {}
   };
 
-  useEffect(() => { setIsMounted(true); fetchHistory(); const interval = setInterval(fetchHistory, 5000); return () => clearInterval(interval); }, [tokenAddress, publicClient]);
+  useEffect(() => { setIsMounted(true); fetchHistory(); const i = setInterval(fetchHistory, 5000); return () => clearInterval(i); }, [tokenAddress, publicClient]);
 
-  // CONFIRMATION LISTENER
-  const { data: hash, isPending, writeContract: _wc } = useWriteContract(); // _wc unused
+  const { data: hash, isPending, writeContract: _wc } = useWriteContract();
   const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({ hash });
 
   useEffect(() => { 
       if (isConfirmed) { 
           toast.dismiss('tx'); 
-          if(activeTab === "sell" && needsApproval) { toast.success("Approved! Now Sell."); refetchAllowance(); }
+          toast.dismiss('approve-tx');
+          if(isApproving) { toast.success("Approved! Now Sell."); setIsApproving(false); refetchAllowance(); }
           else { 
              toast.success("Success!"); 
              if(activeTab === "buy") setShowConfetti(true);
@@ -252,7 +249,6 @@ export default function TradePage({ params }: { params: { id: string } }) {
       } 
   }, [isConfirmed]);
 
-  // SAFE PERCENTAGE CALCULATION
   const handlePercentage = (percent: number) => {
     if(activeTab === "buy") {
         const bal = maticBalance ? parseFloat(maticBalance.formatted) : 0;
@@ -260,13 +256,12 @@ export default function TradePage({ params }: { params: { id: string } }) {
         setAmount((safeBal * (percent/100)).toFixed(4));
     } else {
         const bal = userTokenBalance ? parseFloat(formatEther(userTokenBalance as bigint)) : 0;
-        // Fix rounding error: Use 99.9% instead of 100%
         const safeFactor = percent === 100 ? 0.999 : (percent/100);
         setAmount((bal * safeFactor).toFixed(4));
     }
   };
 
-  if (!isMounted) return <div className="min-h-screen bg-[#0a0e27] flex items-center justify-center text-[#FDDC11] animate-pulse">Loading...</div>;
+  if (!isMounted) return <div className="min-h-screen bg-[#0a0e27] flex items-center justify-center text-[#FDDC11] font-mono animate-pulse">Loading Trade...</div>;
 
   return (
     <div className={`min-h-screen font-sans bg-[#0a0e27] text-white selection:bg-[#FDDC11] selection:text-black`}>
@@ -288,7 +283,7 @@ export default function TradePage({ params }: { params: { id: string } }) {
                 <div className="flex-1">
                     <div className="flex items-center gap-3"><h1 className="text-2xl font-bold">{name?.toString() || "Loading..."}</h1><span className="text-sm font-bold text-gray-400">[{symbol?.toString() || "TKN"}]</span></div>
                     <div className="text-sm text-gray-400 mt-2 line-clamp-3">Meme Token on AION Pump</div>
-                    <div className="flex gap-2 mt-2">{/* Socials placeholders if needed */}</div>
+                    <div className="flex gap-2 mt-2">{/* Socials */}</div>
                 </div>
             </div>
 
@@ -301,7 +296,7 @@ export default function TradePage({ params }: { params: { id: string } }) {
                 <div className="flex gap-1 p-1 rounded-lg border border-white/5 w-fit bg-[#2d1b4e]">{["trades", "chat"].map(tab => (<button key={tab} onClick={() => setBottomTab(tab as any)} className={`px-4 py-1.5 rounded-md text-xs font-bold capitalize transition-all ${bottomTab === tab ? "bg-[#3e2465] text-white" : "text-gray-500 hover:text-white"}`}>{tab}</button>))}</div>
                 <div className="border border-white/5 rounded-2xl p-4 min-h-[300px] bg-[#2d1b4e]/50">
                     {bottomTab === "trades" && (<div className="flex flex-col gap-1"><div className="grid grid-cols-5 text-[10px] font-bold text-gray-500 uppercase px-3 pb-2"><div>User</div><div>Type</div><div>MATIC</div><div>Tokens</div><div className="text-right">Price</div></div>{tradeHistory.map((trade, i) => (<div key={i} className="grid grid-cols-5 text-xs py-3 px-3 rounded-lg border-b border-white/5"><div className="font-mono text-gray-400">{trade.user.slice(0,6)}</div><div className={trade.type==="BUY"?"text-green-500 font-bold":"text-red-500 font-bold"}>{trade.type}</div><div className="text-white">{trade.maticAmount}</div><div className="text-white">{formatTokenAmount(trade.tokenAmount)}</div><div className="text-right text-gray-500">{trade.price}</div></div>))}</div>)}
-                    {bottomTab === "chat" && <ChatBox tokenAddress={tokenAddress} creator={creatorAddress} />}
+                    {bottomTab === "chat" && <ChatBox tokenAddress={tokenAddress} />}
                 </div>
             </div>
         </div>
@@ -341,7 +336,9 @@ export default function TradePage({ params }: { params: { id: string } }) {
                 ) : (
                     // SELL LOGIC: APPROVE FIRST
                     needsApproval ? (
-                        <button onClick={handleApprove} disabled={!address} className="w-full py-4 rounded-xl font-black bg-blue-500 hover:bg-blue-600 text-white transition-all disabled:opacity-50 flex items-center justify-center gap-2"><Lock size={16}/> APPROVE TO SELL</button>
+                        <button onClick={handleApprove} disabled={!address || isApproving} className="w-full py-4 rounded-xl font-black bg-blue-500 hover:bg-blue-600 text-white transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+                            {isApproving ? "APPROVING..." : <><Lock size={16}/> APPROVE TO SELL</>}
+                        </button>
                     ) : (
                         <button onClick={() => handleTx("sell")} disabled={!address} className="w-full py-4 rounded-xl font-black bg-red-500 hover:bg-red-600 text-white transition-all disabled:opacity-50">PLACE SELL ORDER</button>
                     )
