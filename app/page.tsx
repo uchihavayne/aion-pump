@@ -1,11 +1,10 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-// Search ve Star eklendi
-import { Rocket, X, Coins, Twitter, Send, Globe, TrendingUp, Users, Activity, Crown, Flame, Upload, Search, Star, User as UserIcon } from "lucide-react";
+import { Rocket, X, Coins, Twitter, Send, Globe, TrendingUp, Users, Activity, Crown, Flame, Upload, Search, Star, User as UserIcon, AlertTriangle, Zap } from "lucide-react";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import Link from "next/link";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { useWriteContract, useWaitForTransactionReceipt, useReadContract, useWatchContractEvent, usePublicClient } from "wagmi"; 
 import { parseEther, formatEther } from "viem";
 import { CONTRACT_ADDRESS, CONTRACT_ABI } from "./contract";
@@ -16,11 +15,74 @@ const HIDDEN_TOKENS: string[] = [].map((t: string) => t.toLowerCase());
 const getTokenImage = (address: string, customImage?: string) => 
   customImage || `https://api.dyneui.com/avatar/abstract?seed=${address}&size=400&background=000000&color=FDDC11&pattern=circuit&variance=0.7`;
 
-// --- TOKEN KARTI (FAVORİ BUTONU İLE) ---
+// --- LIVE TICKER COMPONENT ---
+function LiveTicker() {
+  const [events, setEvents] = useState<any[]>([]);
+  
+  useWatchContractEvent({
+    address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, eventName: 'Buy',
+    onLogs(logs: any) {
+      const newEvent = {
+        type: 'BUY',
+        token: logs[0].args.token,
+        amount: parseFloat(formatEther(logs[0].args.amountMATIC)).toFixed(2),
+        buyer: logs[0].args.buyer
+      };
+      setEvents(prev => [newEvent, ...prev].slice(0, 5)); // Son 5 olayı tut
+    }
+  });
+
+  return (
+    <div className="w-full bg-[#FDDC11]/10 border-b border-[#FDDC11]/20 overflow-hidden py-2">
+      <div className="flex gap-8 animate-marquee whitespace-nowrap">
+        {events.length === 0 ? (
+           <span className="text-sm text-[#FDDC11] font-mono flex items-center gap-2">🚀 Waiting for new trades... Be the first to buy!</span>
+        ) : (
+           events.map((e, i) => (
+             <span key={i} className="text-sm text-[#FDDC11] font-mono flex items-center gap-2">
+               🟢 {e.buyer.slice(0,4)}... bought {e.amount} MATIC of Token
+             </span>
+           ))
+        )}
+        {/* Sonsuz döngü hissi için statik tekrarlar */}
+        <span className="text-sm text-gray-500 font-mono">⚡ LIVE ACTIVITY</span>
+        <span className="text-sm text-green-400 font-mono">🟢 0x1a... bought 50 MATIC</span>
+        <span className="text-sm text-green-400 font-mono">🟢 0x8b... bought 120 MATIC</span>
+      </div>
+      <style>{`
+        .animate-marquee { animation: marquee 20s linear infinite; }
+        @keyframes marquee { 0% { transform: translateX(100%); } 100% { transform: translateX(-100%); } }
+      `}</style>
+    </div>
+  );
+}
+
+// --- LEADERBOARD COMPONENT ---
+function Leaderboard() {
+    return (
+        <div className="mb-12 bg-white/5 border border-white/10 rounded-2xl p-6">
+            <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2"><TrophyIcon /> Top Gainers (24h)</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {[1, 2, 3].map((i) => (
+                    <div key={i} className="flex items-center gap-3 bg-black/20 p-3 rounded-xl border border-white/5">
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-black ${i===1 ? 'bg-yellow-400' : i===2 ? 'bg-gray-400' : 'bg-orange-700'}`}>{i}</div>
+                        <div>
+                            <div className="text-sm font-bold text-white">PEPE KILLER</div>
+                            <div className="text-xs text-green-400">+{(1000/i).toFixed(0)}%</div>
+                        </div>
+                    </div>
+                ))}
+            </div>
+        </div>
+    )
+}
+const TrophyIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FDDC11" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></svg>
+
+// --- TOKEN CARD (SMART BADGES İLE) ---
 function DarkTokenCard({ tokenAddress }: { tokenAddress: `0x${string}` }) {
   const [hovering, setHovering] = useState(false);
   const [holders, setHolders] = useState(1);
-  const [isFav, setIsFav] = useState(false); // Favori state
+  const [isFav, setIsFav] = useState(false);
   const publicClient = usePublicClient();
 
   const { data: salesData } = useReadContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "sales", args: [tokenAddress] });
@@ -30,34 +92,20 @@ function DarkTokenCard({ tokenAddress }: { tokenAddress: `0x${string}` }) {
 
   const collateral = salesData ? formatEther(salesData[1] as bigint) : "0";
   const tokensSold = salesData ? (salesData[3] as bigint) : 0n;
+  const creationTime = salesData ? Number(salesData[4]) : 0;
   const progress = Number((tokensSold * 100n) / 1000000000000000000000000000n);
   const realProgress = Math.min(progress, 100);
   const image = metadata ? metadata[4] : "";
   const tokenImage = getTokenImage(tokenAddress, image);
 
-  // Favori Kontrolü
+  // SMART BADGES LOGIC
+  const isNew = (Date.now() / 1000) - creationTime < 3600; // Son 1 saat
+  const isHot = parseFloat(collateral) > 100; // Örnek mantık: 100 MATIC üzeri hot
+  const isWhale = parseFloat(collateral) > 500; // 500 MATIC üzeri whale
+
   useEffect(() => {
     const favs = JSON.parse(localStorage.getItem("favorites") || "[]");
     setIsFav(favs.includes(tokenAddress));
-  }, [tokenAddress]);
-
-  const toggleFav = (e: any) => {
-    e.preventDefault(); // Linke gitmeyi engelle
-    e.stopPropagation();
-    const favs = JSON.parse(localStorage.getItem("favorites") || "[]");
-    let newFavs;
-    if (favs.includes(tokenAddress)) {
-        newFavs = favs.filter((t: string) => t !== tokenAddress);
-        toast.success("Removed from watchlist");
-    } else {
-        newFavs = [...favs, tokenAddress];
-        toast.success("Added to watchlist");
-    }
-    localStorage.setItem("favorites", JSON.stringify(newFavs));
-    setIsFav(!isFav);
-  };
-
-  useEffect(() => {
     const getHolders = async () => {
       if(!publicClient) return;
       try {
@@ -69,6 +117,16 @@ function DarkTokenCard({ tokenAddress }: { tokenAddress: `0x${string}` }) {
     getHolders();
   }, [tokenAddress, publicClient]);
 
+  const toggleFav = (e: any) => {
+    e.preventDefault(); e.stopPropagation();
+    const favs = JSON.parse(localStorage.getItem("favorites") || "[]");
+    let newFavs;
+    if (favs.includes(tokenAddress)) { newFavs = favs.filter((t: string) => t !== tokenAddress); toast.success("Removed from watchlist"); } 
+    else { newFavs = [...favs, tokenAddress]; toast.success("Added to watchlist"); }
+    localStorage.setItem("favorites", JSON.stringify(newFavs));
+    setIsFav(!isFav);
+  };
+
   return (
     <Link href={`/trade/${tokenAddress}`}>
       <motion.div
@@ -76,22 +134,25 @@ function DarkTokenCard({ tokenAddress }: { tokenAddress: `0x${string}` }) {
         initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
         style={{ position: 'relative', cursor: 'pointer', height: '100%', borderRadius: '20px', border: hovering ? '1px solid rgba(253, 220, 17, 0.5)' : '1px solid rgba(253, 220, 17, 0.15)', background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.5), rgba(15, 23, 42, 0.7))', backdropFilter: 'blur(20px)', padding: '24px', transition: 'all 0.3s ease', transform: hovering ? 'translateY(-8px)' : 'translateY(0)', boxShadow: hovering ? '0 20px 50px -10px rgba(253, 220, 17, 0.2)' : 'none' }}
       >
-        {/* FAV BUTTON */}
-        <div onClick={toggleFav} className="absolute top-4 right-4 z-10 p-2 rounded-full bg-black/40 hover:bg-black/60 transition-colors border border-white/10">
-            <Star size={16} className={isFav ? "text-[#FDDC11] fill-[#FDDC11]" : "text-gray-400"} />
+        <div onClick={toggleFav} className="absolute top-4 right-4 z-10 p-2 rounded-full bg-black/40 hover:bg-black/60 transition-colors border border-white/10"><Star size={16} className={isFav ? "text-[#FDDC11] fill-[#FDDC11]" : "text-gray-400"} /></div>
+        
+        {/* SMART BADGES */}
+        <div className="absolute top-4 left-4 flex gap-1">
+            {isNew && <span className="bg-blue-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded flex items-center gap-1"><Zap size={8} fill="white"/> NEW</span>}
+            {isHot && <span className="bg-orange-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded flex items-center gap-1"><Flame size={8} fill="white"/> HOT</span>}
+            {isWhale && <span className="bg-purple-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded">🐋 WHALE</span>}
         </div>
 
-        <div style={{ display: 'flex', gap: '16px', marginBottom: '20px', alignItems: 'flex-start' }}>
-          <img src={tokenImage} alt="token" style={{ width: '60px', height: '60px', borderRadius: '14px', border: '1px solid rgba(253, 220, 17, 0.2)', objectFit: 'cover', flexShrink: 0 }} />
+        <div className="flex gap-16px marginBottom: '20px' alignItems: 'flex-start' mt-6">
+          <img src={tokenImage} alt="token" style={{ width: '60px', height: '60px', borderRadius: '14px', border: '1px solid rgba(253, 220, 17, 0.2)', objectFit: 'cover', flexShrink: 0, marginRight:'16px' }} />
           <div style={{ flex: 1 }}>
             <h3 style={{ fontSize: '18px', fontWeight: '700', color: '#fff', marginBottom: '6px', lineHeight: '1.2' }}>{name?.toString() || "Loading..."}</h3>
             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
               <span style={{ fontSize: '12px', fontWeight: '700', backgroundColor: 'rgba(253, 220, 17, 0.15)', color: '#FDDC11', border: '1px solid rgba(253, 220, 17, 0.3)', padding: '4px 8px', borderRadius: '6px' }}>{symbol?.toString() || "TKN"}</span>
-              <span style={{ fontSize: '12px', color: '#94a3b8', fontWeight: '600' }}>Live</span>
             </div>
           </div>
         </div>
-        <div style={{ marginBottom: '20px' }}>
+        <div style={{ marginBottom: '20px', marginTop: '20px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '12px' }}><span style={{ color: '#94a3b8', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Bonding Curve</span><span style={{ color: '#FDDC11', fontWeight: '700' }}>{realProgress.toFixed(1)}%</span></div>
           <div style={{ height: '8px', backgroundColor: 'rgba(255, 255, 255, 0.08)', borderRadius: '4px', overflow: 'hidden' }}><motion.div initial={{ width: 0 }} animate={{ width: `${realProgress}%` }} transition={{ duration: 1.2 }} style={{ height: '100%', background: 'linear-gradient(90deg, #FDDC11 0%, #9333ea 100%)', boxShadow: '0 0 20px rgba(253, 220, 17, 0.6)' }} /></div>
         </div>
@@ -106,10 +167,9 @@ function DarkTokenCard({ tokenAddress }: { tokenAddress: `0x${string}` }) {
 
 // --- KING OF THE HILL (AYNI) ---
 function KingOfTheHill({ tokenAddress }: { tokenAddress: `0x${string}` }) {
-  // ... (Bu kısım önceki koddakiyle aynı kalabilir, yer kaplamaması için kısaltıyorum)
+  const { data: salesData } = useReadContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "sales", args: [tokenAddress] });
   const { data: name } = useReadContract({ address: tokenAddress, abi: [{ name: "name", type: "function", inputs: [], outputs: [{ type: "string" }], stateMutability: "view" }], functionName: "name" });
   const { data: symbol } = useReadContract({ address: tokenAddress, abi: [{ name: "symbol", type: "function", inputs: [], outputs: [{ type: "string" }], stateMutability: "view" }], functionName: "symbol" });
-  const { data: salesData } = useReadContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "sales", args: [tokenAddress] });
   const { data: metadata } = useReadContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "tokenMetadata", args: [tokenAddress] });
   
   const tokensSold = salesData ? (salesData[3] as bigint) : 0n;
@@ -152,7 +212,7 @@ export default function HomePage() {
   const [isMounted, setIsMounted] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("trending");
-  const [searchQuery, setSearchQuery] = useState(""); // ARAMA STATE
+  const [searchQuery, setSearchQuery] = useState("");
   const [formData, setFormData] = useState({ name: "", ticker: "", desc: "", twitter: "", telegram: "", website: "", image: "" });
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -160,22 +220,14 @@ export default function HomePage() {
   const { data: allTokens } = useReadContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "getAllTokens" });
   const [orderedTokens, setOrderedTokens] = useState<string[]>([]);
   
-  // TOKENLARI FİLTRELEME (Search + Hidden)
   useEffect(() => { 
     if (allTokens) { 
-      const tokens = (allTokens as string[])
-        .filter(t => !HIDDEN_TOKENS.includes(t.toLowerCase()))
-        .reverse(); // En yeniden eskiye
+      const tokens = (allTokens as string[]).filter(t => !HIDDEN_TOKENS.includes(t.toLowerCase())).reverse();
       setOrderedTokens(tokens);
     } 
   }, [allTokens]);
 
-  const filteredTokens = orderedTokens.filter(tokenAddr => {
-      // Basit arama: Token adresine göre filtrele (İsim ve sembolü burada filtrelemek için her tokenın verisini çekmek gerekir, bu da yavaşlatır. Şimdilik adres bazlı veya backend ile yapılmalı. 
-      // Ancak kullanıcı deneyimi için burada sadece listeyi gösteriyorum).
-      // İstersen Contract'tan tüm isimleri çekip filtreleyebiliriz ama 1000 tokenda kasar.
-      return tokenAddr.toLowerCase().includes(searchQuery.toLowerCase());
-  });
+  const filteredTokens = orderedTokens.filter(tokenAddr => tokenAddr.toLowerCase().includes(searchQuery.toLowerCase()));
 
   useWatchContractEvent({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, eventName: 'TokenCreated', onLogs(logs: any) { 
     if (logs[0]?.args?.token) { setOrderedTokens(prev => [logs[0].args.token, ...prev]); toast.success("🚀 New token launched!"); } 
@@ -214,13 +266,12 @@ export default function HomePage() {
   return (
     <div style={{ backgroundColor: '#0a0e27', color: '#fff', minHeight: '100vh', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', position: 'relative', overflow: 'hidden' }}>
       <Toaster position="top-center" toastOptions={{ style: { background: '#1F2128', color: '#fff', border: '1px solid #333' } }} />
-      <div style={{ position: 'fixed', top: '-20%', right: '-10%', width: '600px', height: '600px', background: 'radial-gradient(circle, rgba(253,220,17,0.12) 0%, transparent 70%)', filter: 'blur(80px)', zIndex: 0, animation: 'float 8s ease-in-out infinite' }} />
-      <div style={{ position: 'fixed', bottom: '-20%', left: '-10%', width: '600px', height: '600px', background: 'radial-gradient(circle, rgba(147,51,234,0.12) 0%, transparent 70%)', filter: 'blur(80px)', zIndex: 0, animation: 'float 10s ease-in-out infinite reverse' }} />
-      <style>{`@keyframes float { 0%, 100% { transform: translateY(0px); } 50% { transform: translateY(20px); } }`}</style>
+      {/* BACKGROUND & TICKER */}
+      <div style={{ position: 'fixed', top: '-20%', right: '-10%', width: '600px', height: '600px', background: 'radial-gradient(circle, rgba(253,220,17,0.12) 0%, transparent 70%)', filter: 'blur(80px)', zIndex: 0 }} />
+      <div style={{ position: 'fixed', bottom: '-20%', left: '-10%', width: '600px', height: '600px', background: 'radial-gradient(circle, rgba(147,51,234,0.12) 0%, transparent 70%)', filter: 'blur(80px)', zIndex: 0 }} />
 
-      {/* Header */}
-      <header style={{ position: 'sticky', top: 0, zIndex: 40, backgroundColor: 'rgba(10, 14, 39, 0.85)', backdropFilter: 'blur(20px)', borderBottom: '1px solid rgba(253, 220, 17, 0.1)', padding: '16px 0' }}>
-        <div style={{ maxWidth: '1280px', margin: '0 auto', padding: '0 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <header style={{ position: 'sticky', top: 0, zIndex: 40, backgroundColor: 'rgba(10, 14, 39, 0.95)', backdropFilter: 'blur(20px)', borderBottom: '1px solid rgba(253, 220, 17, 0.1)' }}>
+        <div style={{ maxWidth: '1280px', margin: '0 auto', padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <div style={{ width: '40px', height: '40px', background: 'linear-gradient(135deg, #FDDC11, #9333ea)', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#000', fontWeight: '900', fontSize: '20px', boxShadow: '0 0 20px rgba(253, 220, 17, 0.3)' }}>A</div>
             <div><div style={{ fontSize: '20px', fontWeight: '800', letterSpacing: '-0.5px', background: 'linear-gradient(90deg, #FDDC11, #9333ea)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>AION</div><div style={{ fontSize: '10px', color: '#64748b', fontWeight: '600' }}>Bonding Curves</div></div>
@@ -228,17 +279,14 @@ export default function HomePage() {
           <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
             <button onClick={() => setIsModalOpen(true)} style={{ background: 'linear-gradient(135deg, #FDDC11, #9333ea)', color: '#000', border: 'none', padding: '10px 20px', borderRadius: '10px', fontWeight: '700', fontSize: '13px', cursor: 'pointer', transition: 'all 0.3s', boxShadow: '0 0 20px rgba(253, 220, 17, 0.3)', display: 'flex', alignItems: 'center', gap: '6px' }} onMouseEnter={(e) => e.currentTarget.style.boxShadow = '0 0 30px rgba(253, 220, 17, 0.5)'} onMouseLeave={(e) => e.currentTarget.style.boxShadow = '0 0 20px rgba(253, 220, 17, 0.3)'}><Rocket size={16} /> LAUNCH</button>
             <div style={{ transform: 'scale(0.9)' }}><ConnectButton showBalance={false} accountStatus="avatar" chainStatus="none" /></div>
-            
-            {/* PROFILE LINK */}
-            <Link href="/profile" className="p-2.5 bg-white/5 hover:bg-white/10 rounded-xl transition-colors border border-white/5">
-                <UserIcon size={20} className="text-[#FDDC11]" />
-            </Link>
+            <Link href="/profile" className="p-2.5 bg-white/5 hover:bg-white/10 rounded-xl transition-colors border border-white/5 group"><UserIcon size={20} className="text-gray-400 group-hover:text-[#FDDC11] transition-colors" /></Link>
           </div>
         </div>
+        <LiveTicker />
       </header>
 
-      <main style={{ maxWidth: '1280px', margin: '0 auto', padding: '60px 20px', position: 'relative', zIndex: 10 }}>
-        {/* KING OF THE HILL SECTION */}
+      <main style={{ maxWidth: '1280px', margin: '0 auto', padding: '40px 20px', position: 'relative', zIndex: 10 }}>
+        {/* KING OF THE HILL */}
         {orderedTokens.length > 0 && (
           <div className="mb-12">
              <div className="flex items-center gap-2 mb-4"><Crown className="text-[#FDDC11]" size={24} /><h2 className="text-2xl font-black text-white">KING OF THE HILL</h2></div>
@@ -246,25 +294,13 @@ export default function HomePage() {
           </div>
         )}
 
-        {/* SEARCH BAR EKLENDİ */}
+        {/* LEADERBOARD (STATIC DEMO) */}
+        <Leaderboard />
+
+        {/* SEARCH BAR */}
         <div className="mb-8 relative max-w-md mx-auto">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-            <input 
-                type="text" 
-                placeholder="Search token address..." 
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full bg-[#0f1225] border border-white/10 rounded-full py-3 pl-12 pr-6 text-white outline-none focus:border-[#FDDC11] transition-colors"
-            />
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px', marginBottom: '60px' }}>
-          {[{ label: 'Pairs', val: orderedTokens.length.toString(), icon: '🚀' }, { label: 'Volume', val: '$0', icon: '📊' }, { label: 'Traders', val: '0', icon: '👥' }, { label: 'Avg ROI', val: '0%', icon: '📈' }].map((s, i) => (
-            <div key={i} style={{ background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.4), rgba(15, 23, 42, 0.6))', border: '1px solid rgba(253, 220, 17, 0.1)', borderRadius: '16px', padding: '24px', backdropFilter: 'blur(20px)', transition: 'all 0.3s', cursor: 'pointer' }} onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'rgba(253, 220, 17, 0.3)'; e.currentTarget.style.transform = 'translateY(-4px)'; }} onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'rgba(253, 220, 17, 0.1)'; e.currentTarget.style.transform = 'translateY(0)'; }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px' }}><span style={{ fontSize: '12px', color: '#94a3b8', fontWeight: '600', textTransform: 'uppercase' }}>{s.label}</span><span style={{ fontSize: '24px' }}>{s.icon}</span></div>
-              <div style={{ fontSize: '28px', fontWeight: '800', color: '#fff' }}>{s.val}</div>
-            </div>
-          ))}
+            <input type="text" placeholder="Search token address..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full bg-[#0f1225] border border-white/10 rounded-full py-3 pl-12 pr-6 text-white outline-none focus:border-[#FDDC11] transition-colors" />
         </div>
 
         <div style={{ display: 'flex', gap: '8px', marginBottom: '32px', overflowX: 'auto', paddingBottom: '8px' }}>{['Trending', 'New', 'Gainers', 'Volume'].map(t => (<button key={t} onClick={() => setActiveTab(t.toLowerCase())} style={{ padding: '10px 20px', borderRadius: '10px', fontSize: '13px', fontWeight: '700', border: activeTab === t.toLowerCase() ? '2px solid #FDDC11' : '1px solid rgba(255, 255, 255, 0.1)', background: activeTab === t.toLowerCase() ? 'linear-gradient(135deg, #FDDC11, #9333ea)' : 'transparent', color: activeTab === t.toLowerCase() ? '#000' : '#94a3b8', cursor: 'pointer', transition: 'all 0.3s', whiteSpace: 'nowrap', boxShadow: activeTab === t.toLowerCase() ? '0 0 20px rgba(253, 220, 17, 0.3)' : 'none' }}>{t}</button>))}</div>
@@ -274,7 +310,7 @@ export default function HomePage() {
         </div>
       </main>
 
-      {/* Modal Kodu Aynı Kalıyor */}
+      {/* Modal - AYNEN KORUNDU */}
       {isModalOpen && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
           <div onClick={() => setIsModalOpen(false)} style={{ position: 'absolute', inset: 0, backgroundColor: 'rgba(0, 0, 0, 0.8)', backdropFilter: 'blur(12px)' }} />
