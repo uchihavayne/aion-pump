@@ -11,10 +11,11 @@ import { ConnectButton } from "@rainbow-me/rainbowkit";
 import Link from "next/link";
 import { useWriteContract, useWaitForTransactionReceipt, useReadContract, useWatchContractEvent, useAccount, usePublicClient, useBalance, useSendTransaction } from "wagmi"; 
 import { parseEther, formatEther, erc20Abi } from "viem"; 
+// GÜVENLİ IMPORT
 import { CONTRACT_ADDRESS, CONTRACT_ABI } from "../../contract"; 
 import { ComposedChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, PieChart, Pie } from 'recharts';
 import toast, { Toaster } from 'react-hot-toast';
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import Confetti from 'react-confetti';
 
 // --- STYLES ---
@@ -28,15 +29,26 @@ const styles = `
 `;
 
 // --- HELPERS ---
+const getTokenImage = (address: string) => 
+  `https://api.dicebear.com/7.x/identicon/svg?seed=${address}&backgroundColor=transparent`;
+
 const MediaRenderer = ({ src, className }: { src: string, className: string }) => {
-    // Hydration fix: Sadece client'ta render et
+    // Hydration Fix
     const [mounted, setMounted] = useState(false);
     useEffect(() => setMounted(true), []);
     if (!mounted) return <div className={`${className} bg-gray-800 animate-pulse`} />;
 
-    const isVideo = src.includes(".mp4") || src.includes(".webm");
+    const isVideo = src && (src.includes(".mp4") || src.includes(".webm"));
     if (isVideo) return <video src={src} className={className} autoPlay muted loop playsInline />;
-    return <img src={src} className={className} alt="token" />;
+    
+    return (
+        <img 
+            src={src || getTokenImage("default")} 
+            className={className} 
+            alt="token" 
+            onError={(e) => { (e.target as HTMLImageElement).src = getTokenImage("default"); }} 
+        />
+    );
 };
 
 const generateNickname = (address: string) => {
@@ -49,7 +61,6 @@ const generateNickname = (address: string) => {
 };
 
 const getAvatarUrl = (address: string) => `https://api.dicebear.com/7.x/pixel-art/svg?seed=${address}`;
-const getTokenImage = (address: string, customImage?: string) => customImage || `https://api.dyneui.com/avatar/abstract?seed=${address}&size=400&background=000000&color=FDDC11&pattern=circuit&variance=0.7`;
 const formatTokenAmount = (num: number) => { if (num >= 1000000) return (num / 1000000).toFixed(2) + "M"; if (num >= 1000) return (num / 1000).toFixed(2) + "k"; return num.toFixed(2); };
 const playSound = (type: 'buy' | 'sell' | 'tip' | 'alert') => { 
     if (typeof window === 'undefined') return;
@@ -62,15 +73,8 @@ const CustomCandle = (props: any) => { const { x, y, width, height, fill } = pro
 const PnLCard = ({ balance, price, symbol }: { balance: string, price: number, symbol: string }) => {
     const bal = parseFloat(balance);
     const value = bal * price;
-    // HYDRATION FIX: Rastgele sayı yerine sabit hesaplama
-    const [entryPrice, setEntryPrice] = useState(0);
-    
-    useEffect(() => {
-        setEntryPrice(price * (0.8 + (price % 0.1))); // Client-side calculation only
-    }, [price]);
-
-    if (entryPrice === 0) return null;
-
+    // HYDRATION FIX: Sabit hesaplama
+    const entryPrice = price * 0.8; 
     const pnl = (price - entryPrice) * bal;
     const pnlPercent = ((price - entryPrice) / entryPrice) * 100;
 
@@ -96,10 +100,12 @@ const ChatBox = ({ tokenAddress, creator }: { tokenAddress: string, creator: str
 
     useEffect(() => { 
         setIsClient(true);
-        const saved = localStorage.getItem(`chat_${tokenAddress}`); 
-        if(saved) setMsgs(JSON.parse(saved)); 
-        const savedPin = localStorage.getItem(`pin_${tokenAddress}`); 
-        if(savedPin) setPinned(JSON.parse(savedPin)); 
+        if (typeof window !== 'undefined') {
+            const saved = localStorage.getItem(`chat_${tokenAddress}`); 
+            if(saved) setMsgs(JSON.parse(saved)); 
+            const savedPin = localStorage.getItem(`pin_${tokenAddress}`); 
+            if(savedPin) setPinned(JSON.parse(savedPin)); 
+        }
     }, [tokenAddress]);
 
     const sendMsg = () => { 
@@ -137,7 +143,7 @@ const BubbleMap = ({ holders }: { holders: any[] }) => {
         <div className="h-[300px] w-full relative overflow-hidden bg-black/20 rounded-xl border border-white/5">
              <div className="absolute inset-0 flex items-center justify-center text-xs text-gray-500 pointer-events-none">Top 20 Holders Visualization</div>
              {holders.slice(0, 20).map((h, i) => {
-                 // HYDRATION FIX: Deterministik pozisyon (Adrese göre sabit)
+                 // HYDRATION FIX: Deterministik pozisyon
                  const seed = parseInt(h.address.slice(2, 6), 16);
                  const size = Math.max(20, Math.min(80, h.percentage * 4));
                  const top = (seed % 70) + 10;
@@ -178,7 +184,7 @@ export default function TradePage({ params }: { params: { id: string } }) {
   const publicClient = usePublicClient(); 
   const { isConnected, address } = useAccount();
 
-  // HYDRATION FIX
+  // HYDRATION FIX: MOUNTED CHECK
   const [isMounted, setIsMounted] = useState(false);
 
   // STATES
@@ -210,17 +216,16 @@ export default function TradePage({ params }: { params: { id: string } }) {
   const { data: symbol } = useReadContract({ address: tokenAddress, abi: [{ name: "symbol", type: "function", inputs: [], outputs: [{ type: "string" }], stateMutability: "view" }], functionName: "symbol" });
   const { data: metadata } = useReadContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "tokenMetadata", args: [tokenAddress] });
 
-  // CALCS
-  const collateral = salesData ? formatEther(salesData[1] as bigint) : "0";
-  const tokensSold = salesData ? (salesData[3] as bigint) : 0n;
-  const creatorAddress = salesData ? salesData[0] : "";
-  const progress = Number((tokensSold * 100n) / 1000000000000000000000000000n);
+  // CALCS - FIX BIGINT
+  const collateralStr = salesData ? formatEther(salesData[1] as bigint) : "0";
+  const tokensSoldStr = salesData ? formatEther(salesData[3] as bigint) : "0";
+  const progress = (parseFloat(tokensSoldStr) / 1_000_000_000) * 100;
   const realProgress = Math.min(progress, 100);
-  const migrationProgress = Math.min((parseFloat(collateral) / 3000) * 100, 100);
+  const migrationProgress = Math.min((parseFloat(collateralStr) / 3000) * 100, 100);
   const currentPrice = chartData.length > 0 ? chartData[chartData.length - 1].price : 0.000001;
   const marketCap = currentPrice * 1_000_000_000;
   const image = metadata ? metadata[4] : "";
-  const tokenImage = getTokenImage(tokenAddress, image);
+  const tokenImage = getTokenImage(tokenAddress);
   const riskScore = holderList.length < 5 ? 20 : holderList.length < 20 ? 50 : 90;
 
   // ACTIONS
@@ -301,7 +306,7 @@ export default function TradePage({ params }: { params: { id: string } }) {
 
   const handlePercentage = (percent: number) => { if(activeTab === "buy") { const bal = maticBalance ? parseFloat(maticBalance.formatted) : 0; const max = bal - 0.02; if(max > 0) setAmount((max * (percent/100)).toFixed(4)); } else { const bal = userTokenBalance ? parseFloat(formatEther(userTokenBalance as bigint)) : 0; setAmount((bal * (percent/100)).toFixed(2)); } };
 
-  if (!isMounted) return null;
+  if (!isMounted) return <div className="min-h-screen bg-[#0a0e27] flex items-center justify-center text-[#FDDC11] font-mono">Loading Trade...</div>;
 
   return (
     <div className={`min-h-screen font-sans selection:bg-[#FDDC11] selection:text-black ${isShaking ? "shake-screen" : ""} ${isMatrixMode ? "matrix-mode" : "bg-[#0a0e27] text-white"}`}>
