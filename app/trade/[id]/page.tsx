@@ -35,9 +35,18 @@ const MediaRenderer = ({ src, className }: { src: string, className: string }) =
     const [mounted, setMounted] = useState(false);
     useEffect(() => setMounted(true), []);
     if (!mounted) return <div className={`${className} bg-gray-800 animate-pulse`} />;
+
     const isVideo = src && (src.includes(".mp4") || src.includes(".webm"));
     if (isVideo) return <video src={src} className={className} autoPlay muted loop playsInline />;
-    return <img src={src || getTokenImage("default")} className={className} alt="token" onError={(e) => { (e.target as HTMLImageElement).src = getTokenImage("default"); }} />;
+    
+    return (
+        <img 
+            src={src || getTokenImage("default")} 
+            className={className} 
+            alt="token" 
+            onError={(e) => { (e.target as HTMLImageElement).src = getTokenImage("default"); }} 
+        />
+    );
 };
 
 const generateNickname = (address: string) => {
@@ -46,6 +55,17 @@ const generateNickname = (address: string) => {
 };
 
 const formatTokenAmount = (num: number) => { if (num >= 1000000) return (num / 1000000).toFixed(2) + "M"; if (num >= 1000) return (num / 1000).toFixed(2) + "k"; return num.toFixed(2); };
+
+const playSound = (type: 'buy' | 'sell' | 'tip' | 'alert') => { 
+    if (typeof window === 'undefined') return;
+    try { const audio = new Audio(type === 'buy' ? '/buy.mp3' : type === 'sell' ? '/sell.mp3' : type === 'tip' ? '/tip.mp3' : '/alert.mp3'); audio.volume = 0.5; audio.play().catch(() => {}); } catch (e) {} 
+};
+
+// --- EKSİK OLAN PARÇA BURASIYDI ---
+const CustomCandle = (props: any) => { 
+    const { x, y, width, height, fill } = props; 
+    return <rect x={x} y={y} width={width} height={Math.max(height, 2)} fill={fill} rx={2} />; 
+};
 
 // --- COMPONENTS ---
 const PnLCard = ({ balance, price, symbol }: { balance: string, price: number, symbol: string }) => {
@@ -65,7 +85,7 @@ const PnLCard = ({ balance, price, symbol }: { balance: string, price: number, s
     );
 };
 
-const ChatBox = ({ tokenAddress }: { tokenAddress: string }) => {
+const ChatBox = ({ tokenAddress, creator }: { tokenAddress: string, creator: string }) => {
     const { address } = useAccount();
     const [msgs, setMsgs] = useState<any[]>([]);
     const [input, setInput] = useState("");
@@ -90,17 +110,16 @@ export default function TradePage({ params }: { params: { id: string } }) {
   const { isConnected, address } = useAccount();
   const [isMounted, setIsMounted] = useState(false);
 
-  // STATES (Missing variables restored)
+  // STATES
   const [activeTab, setActiveTab] = useState<"buy" | "sell">("buy");
   const [bottomTab, setBottomTab] = useState<"trades" | "chat">("trades");
   const [amount, setAmount] = useState("");
-  const [slippage, setSlippage] = useState(5); // Fixed: Added missing slippage state
+  const [slippage, setSlippage] = useState(5); // SLIPPAGE DEFINED HERE
   const [showConfetti, setShowConfetti] = useState(false);
   const [isApproving, setIsApproving] = useState(false);
-  const [showSettings, setShowSettings] = useState(false); // Restored
-  const [sniperMode, setSniperMode] = useState(false); // Restored
-  const [mevProtect, setMevProtect] = useState(false); // Restored
-  const [priceAlert, setPriceAlert] = useState(""); // Restored
+  const [showSettings, setShowSettings] = useState(false);
+  const [isMatrixMode, setIsMatrixMode] = useState(false);
+  const [isTvMode, setIsTvMode] = useState(false);
 
   // DATA
   const [chartData, setChartData] = useState<any[]>([]);
@@ -123,7 +142,7 @@ export default function TradePage({ params }: { params: { id: string } }) {
 
   // DEFINED VARIABLES
   const image = metadata ? metadata[4] : "";
-  const desc = metadata ? metadata[5] : ""; // Fixed missing desc
+  const desc = metadata ? metadata[5] : "";
   const twitter = metadata ? metadata[6] : "";
   const telegram = metadata ? metadata[7] : "";
   const web = metadata ? metadata[8] : "";
@@ -137,6 +156,7 @@ export default function TradePage({ params }: { params: { id: string } }) {
   const tokensSoldStr = salesData ? formatEther(salesData[3] as bigint) : "0";
   const progress = (parseFloat(tokensSoldStr) / 1_000_000_000) * 100;
   const realProgress = Math.min(progress, 100);
+  const creatorAddress = salesData ? salesData[0] : "";
 
   // NEEDS APPROVAL?
   const needsApproval = activeTab === "sell" && (!allowance || (amount && parseFloat(amount) > parseFloat(formatEther(allowance as bigint))));
@@ -270,7 +290,7 @@ export default function TradePage({ params }: { params: { id: string } }) {
       } 
   }, [isConfirmed]);
 
-  // HANDLE PERCENTAGE (SAFE)
+  // HANDLE PERCENTAGE (SAFE 99.9%)
   const handlePercentage = (percent: number) => {
     if(activeTab === "buy") {
         const bal = maticBalance ? parseFloat(maticBalance.formatted) : 0;
@@ -278,9 +298,8 @@ export default function TradePage({ params }: { params: { id: string } }) {
         setAmount((safeBal * (percent/100)).toFixed(4));
     } else {
         const bal = userTokenBalance ? parseFloat(formatEther(userTokenBalance as bigint)) : 0;
-        // 99.9% Safety
         const safeFactor = percent === 100 ? 0.999 : (percent/100);
-        setAmount((bal * safeFactor).toFixed(2));
+        setAmount((bal * safeFactor).toFixed(4)); // Safe formatting
     }
   };
 
