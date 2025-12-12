@@ -54,14 +54,13 @@ const generateNickname = (address: string) => {
     return `User ${address.slice(2,6)}`;
 };
 
-const formatTokenAmount = (num: number) => { if (num >= 1000000) return (num / 1000000).toFixed(2) + "M"; if (num >= 1000) return (num / 1000).toFixed(2) + "k"; return num.toFixed(2); };
-
-const playSound = (type: 'buy' | 'sell' | 'tip' | 'alert') => { 
-    if (typeof window === 'undefined') return;
-    try { const audio = new Audio(type === 'buy' ? '/buy.mp3' : type === 'sell' ? '/sell.mp3' : type === 'tip' ? '/tip.mp3' : '/alert.mp3'); audio.volume = 0.5; audio.play().catch(() => {}); } catch (e) {} 
+const formatTokenAmount = (num: number) => { 
+    if (num >= 1000000) return (num / 1000000).toFixed(2) + "M"; 
+    if (num >= 1000) return (num / 1000).toFixed(2) + "k"; 
+    return num.toFixed(2); 
 };
 
-// --- EKSİK OLAN PARÇA BURASIYDI ---
+// --- CHART COMPONENT (BU EKSİKTİ, EKLENDİ) ---
 const CustomCandle = (props: any) => { 
     const { x, y, width, height, fill } = props; 
     return <rect x={x} y={y} width={width} height={Math.max(height, 2)} fill={fill} rx={2} />; 
@@ -90,15 +89,71 @@ const ChatBox = ({ tokenAddress, creator }: { tokenAddress: string, creator: str
     const [msgs, setMsgs] = useState<any[]>([]);
     const [input, setInput] = useState("");
     const [isClient, setIsClient] = useState(false);
-    useEffect(() => { setIsClient(true); if (typeof window !== 'undefined') { const saved = localStorage.getItem(`chat_${tokenAddress}`); if(saved) setMsgs(JSON.parse(saved)); } }, [tokenAddress]);
-    const sendMsg = () => { if(!input.trim()) return; const newMsg = { user: generateNickname(address || "0x00"), text: input, time: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) }; const updated = [...msgs, newMsg]; setMsgs(updated); localStorage.setItem(`chat_${tokenAddress}`, JSON.stringify(updated)); setInput(""); };
+
+    useEffect(() => { 
+        setIsClient(true); 
+        if (typeof window !== 'undefined') { 
+            const saved = localStorage.getItem(`chat_${tokenAddress}`); 
+            if(saved) setMsgs(JSON.parse(saved)); 
+        } 
+    }, [tokenAddress]);
+
+    const sendMsg = () => { 
+        if(!input.trim()) return; 
+        const newMsg = { user: generateNickname(address || "0x00"), text: input, time: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) }; 
+        const updated = [...msgs, newMsg]; 
+        setMsgs(updated); 
+        localStorage.setItem(`chat_${tokenAddress}`, JSON.stringify(updated)); 
+        setInput(""); 
+    };
+
     if (!isClient) return <div className="h-[300px] bg-white/5 animate-pulse rounded-xl"/>;
+    
     return (
         <div className="flex flex-col h-[300px]">
             <div className="flex-1 overflow-y-auto space-y-2 mb-3 pr-2 scrollbar-thin scrollbar-thumb-white/10">
                 {msgs.map((m, i) => (<div key={i} className="p-2 rounded-lg bg-white/5 text-xs"><div className="flex justify-between mb-1"><span className="text-[#FDDC11] font-bold">{m.user}</span><span className="text-gray-500">{m.time}</span></div><p className="text-gray-300">{m.text}</p></div>))}
             </div>
             <div className="flex gap-2"><input type="text" value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==='Enter' && sendMsg()} className="flex-1 bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-[#FDDC11]" /><button onClick={sendMsg} className="bg-[#FDDC11] text-black p-2 rounded-lg"><Send size={14}/></button></div>
+        </div>
+    );
+};
+
+const BubbleMap = ({ holders }: { holders: any[] }) => {
+    return (
+        <div className="h-[300px] w-full relative overflow-hidden bg-black/20 rounded-xl border border-white/5">
+             <div className="absolute inset-0 flex items-center justify-center text-xs text-gray-500 pointer-events-none">Top 20 Holders Visualization</div>
+             {holders.slice(0, 20).map((h, i) => {
+                 const seed = parseInt(h.address.slice(2, 6), 16);
+                 const size = Math.max(20, Math.min(80, h.percentage * 4));
+                 const top = (seed % 70) + 10;
+                 const left = ((seed * 13) % 70) + 10;
+                 return (<motion.div key={i} initial={{ scale: 0 }} animate={{ scale: 1 }} className="absolute rounded-full flex items-center justify-center border border-white/10 shadow-xl backdrop-blur-sm cursor-pointer hover:z-10 hover:border-[#FDDC11] transition-colors" style={{ width: size, height: size, top: `${top}%`, left: `${left}%`, background: i === 0 ? 'rgba(253, 220, 17, 0.2)' : 'rgba(255,255,255,0.05)' }} title={`${h.address} (${h.percentage.toFixed(2)}%)`}><span className="text-[8px] text-white opacity-50 truncate w-full text-center px-1 font-mono">{h.address.slice(2,5)}</span></motion.div>)
+             })}
+        </div>
+    )
+}
+
+const MemeGenerator = ({ tokenImage, symbol }: { tokenImage: string, symbol: string }) => {
+    const [topText, setTopText] = useState("");
+    const [bottomText, setBottomText] = useState("");
+    const canvasRef = useRef<HTMLCanvasElement>(null);
+    useEffect(() => {
+        const canvas = canvasRef.current;
+        if(!canvas) return;
+        const ctx = canvas.getContext("2d");
+        const img = new Image(); img.crossOrigin = "anonymous"; img.src = tokenImage;
+        img.onload = () => {
+            if(!ctx) return;
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height); ctx.font = "bold 40px Impact"; ctx.fillStyle = "white"; ctx.strokeStyle = "black"; ctx.lineWidth = 2; ctx.textAlign = "center";
+            ctx.fillText(topText.toUpperCase(), canvas.width/2, 50); ctx.strokeText(topText.toUpperCase(), canvas.width/2, 50);
+            ctx.fillText(bottomText.toUpperCase(), canvas.width/2, canvas.height - 20); ctx.strokeText(bottomText.toUpperCase(), canvas.width/2, canvas.height - 20);
+        };
+    }, [topText, bottomText, tokenImage]);
+    const downloadMeme = () => { const link = document.createElement('a'); link.download = `${symbol}-meme.png`; link.href = canvasRef.current?.toDataURL() || ""; link.click(); toast.success("Meme Downloaded! 🎨"); };
+    return (
+        <div className="flex flex-col gap-4 p-4 bg-black/20 rounded-xl">
+            <canvas ref={canvasRef} width={400} height={400} className="w-full rounded-lg border border-white/10" /><div className="flex gap-2"><input type="text" placeholder="Top Text" className="flex-1 bg-white/5 border border-white/10 rounded px-2 py-1 text-sm outline-none text-white" value={topText} onChange={e=>setTopText(e.target.value)} /><input type="text" placeholder="Bottom Text" className="flex-1 bg-white/5 border border-white/10 rounded px-2 py-1 text-sm outline-none text-white" value={bottomText} onChange={e=>setBottomText(e.target.value)} /></div><button onClick={downloadMeme} className="w-full bg-[#FDDC11] text-black font-bold py-2 rounded-lg flex items-center justify-center gap-2 hover:bg-[#ffe55c] transition-colors"><Download size={16}/> Download Meme</button>
         </div>
     );
 };
@@ -114,16 +169,21 @@ export default function TradePage({ params }: { params: { id: string } }) {
   const [activeTab, setActiveTab] = useState<"buy" | "sell">("buy");
   const [bottomTab, setBottomTab] = useState<"trades" | "chat">("trades");
   const [amount, setAmount] = useState("");
-  const [slippage, setSlippage] = useState(5); // SLIPPAGE DEFINED HERE
+  const [slippage, setSlippage] = useState(5);
   const [showConfetti, setShowConfetti] = useState(false);
   const [isApproving, setIsApproving] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [isMatrixMode, setIsMatrixMode] = useState(false);
   const [isTvMode, setIsTvMode] = useState(false);
+  const [sniperMode, setSniperMode] = useState(false);
+  const [mevProtect, setMevProtect] = useState(false);
+  const [priceAlert, setPriceAlert] = useState("");
 
   // DATA
   const [chartData, setChartData] = useState<any[]>([]);
   const [tradeHistory, setTradeHistory] = useState<any[]>([]);
+  const [holderList, setHolderList] = useState<any[]>([]);
+  const [pieData, setPieData] = useState<any[]>([]);
   const processedTxHashes = useRef(new Set());
 
   // READS
@@ -156,6 +216,8 @@ export default function TradePage({ params }: { params: { id: string } }) {
   const tokensSoldStr = salesData ? formatEther(salesData[3] as bigint) : "0";
   const progress = (parseFloat(tokensSoldStr) / 1_000_000_000) * 100;
   const realProgress = Math.min(progress, 100);
+  const migrationProgress = Math.min((parseFloat(collateralStr) / 3000) * 100, 100);
+  const riskScore = holderList.length < 5 ? 20 : holderList.length < 20 ? 50 : 90;
   const creatorAddress = salesData ? salesData[0] : "";
 
   // NEEDS APPROVAL?
@@ -245,6 +307,13 @@ export default function TradePage({ params }: { params: { id: string } }) {
       const newChart: any[] = [];
       let lastPrice = 0.0000001;
 
+      // HOLDERS
+      const balances: Record<string, bigint> = {};
+      buyLogs.forEach((l:any) => { const amt = l.args.amountTokens ? BigInt(l.args.amountTokens) : 0n; balances[l.args.buyer] = (balances[l.args.buyer] || 0n) + amt; });
+      sellLogs.forEach((l:any) => { const amt = l.args.amountTokens ? BigInt(l.args.amountTokens) : 0n; balances[l.args.seller] = (balances[l.args.seller] || 0n) - amt; });
+      const sortedHolders = Object.entries(balances).filter(([_, bal]) => bal > 10n).sort(([, a], [, b]) => (b > a ? 1 : -1)).map(([addr, bal]) => ({ address: addr, balance: bal.toString(), percentage: (Number(bal) * 100) / 1_000_000_000 / 10**18 }));
+      setHolderList(sortedHolders);
+
       allEvents.forEach((event: any) => {
         if (processedTxHashes.current.has(event.transactionHash)) return;
         processedTxHashes.current.add(event.transactionHash);
@@ -290,7 +359,7 @@ export default function TradePage({ params }: { params: { id: string } }) {
       } 
   }, [isConfirmed]);
 
-  // HANDLE PERCENTAGE (SAFE 99.9%)
+  // HANDLE PERCENTAGE (SAFE)
   const handlePercentage = (percent: number) => {
     if(activeTab === "buy") {
         const bal = maticBalance ? parseFloat(maticBalance.formatted) : 0;
@@ -299,7 +368,7 @@ export default function TradePage({ params }: { params: { id: string } }) {
     } else {
         const bal = userTokenBalance ? parseFloat(formatEther(userTokenBalance as bigint)) : 0;
         const safeFactor = percent === 100 ? 0.999 : (percent/100);
-        setAmount((bal * safeFactor).toFixed(4)); // Safe formatting
+        setAmount((bal * safeFactor).toFixed(4));
     }
   };
 
@@ -347,10 +416,13 @@ export default function TradePage({ params }: { params: { id: string } }) {
             </div>
 
             <div className="flex flex-col gap-4">
-                <div className="flex gap-1 p-1 rounded-lg border border-white/5 w-fit bg-[#2d1b4e]">{["trades", "chat"].map(tab => (<button key={tab} onClick={() => setBottomTab(tab as any)} className={`px-4 py-1.5 rounded-md text-xs font-bold capitalize transition-all ${bottomTab === tab ? "bg-[#3e2465] text-white" : "text-gray-500 hover:text-white"}`}>{tab}</button>))}</div>
+                <div className="flex gap-1 p-1 rounded-lg border border-white/5 w-fit bg-[#2d1b4e]">{["trades", "chat", "holders", "bubbles", "meme"].map(tab => (<button key={tab} onClick={() => setBottomTab(tab as any)} className={`px-4 py-1.5 rounded-md text-xs font-bold capitalize transition-all ${bottomTab === tab ? "bg-[#3e2465] text-white" : "text-gray-500 hover:text-white"}`}>{tab}</button>))}</div>
                 <div className="border border-white/5 rounded-2xl p-4 min-h-[300px] bg-[#2d1b4e]/50">
                     {bottomTab === "trades" && (<div className="flex flex-col gap-1"><div className="grid grid-cols-5 text-[10px] font-bold text-gray-500 uppercase px-3 pb-2"><div>User</div><div>Type</div><div>MATIC</div><div>Tokens</div><div className="text-right">Price</div></div>{tradeHistory.map((trade, i) => (<div key={i} className="grid grid-cols-5 text-xs py-3 px-3 rounded-lg border-b border-white/5"><div className="font-mono text-gray-400">{trade.user.slice(0,6)}</div><div className={trade.type==="BUY"?"text-green-500 font-bold":"text-red-500 font-bold"}>{trade.type}</div><div className="text-white">{trade.maticAmount}</div><div className="text-white">{formatTokenAmount(trade.tokenAmount)}</div><div className="text-right text-gray-500">{trade.price}</div></div>))}</div>)}
                     {bottomTab === "chat" && <ChatBox tokenAddress={tokenAddress} creator={creatorAddress} />}
+                    {bottomTab === "holders" && (<div className="flex flex-col gap-2">{holderList.map((h,i)=>(<div key={i} className="flex justify-between text-xs border-b border-white/5 pb-1"><span className="font-mono text-gray-400">{h.address.slice(0,6)}...</span><span className="text-white">{h.percentage.toFixed(2)}%</span></div>))}</div>)}
+                    {bottomTab === "bubbles" && <BubbleMap holders={holderList} />}
+                    {bottomTab === "meme" && <MemeGenerator tokenImage={tokenImage} symbol={symbol?.toString() || "TKN"} />}
                 </div>
             </div>
         </div>
