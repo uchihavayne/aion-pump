@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useEffect, useRef, use, useMemo } from "react";
+import { useState, useEffect, useRef, use } from "react";
 import { 
   ArrowLeft, Twitter, Globe, Send, Copy, TrendingUp, MessageSquare, 
   User, ExternalLink, Coins, Users, Settings, Share2, Star, 
   Shield, AlertTriangle, Info, Gift, Zap, ImageIcon, Download, 
-  Crosshair, Lock, Bell, Monitor, Ticket, Flame, Pin, Trophy, Eye, LayoutGrid
+  Crosshair, Lock, Bell, Monitor, Ticket, Flame, Pin, Trophy, Eye, LayoutGrid, X
 } from "lucide-react";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import Link from "next/link";
@@ -16,11 +16,25 @@ import { ComposedChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, P
 import toast, { Toaster } from 'react-hot-toast';
 import { motion, AnimatePresence } from "framer-motion";
 import Confetti from 'react-confetti';
-import { minidenticon } from 'minidenticons'; // Opsiyonel: Avatar için
+
+// --- CSS STYLES ---
+const styles = `
+  @keyframes shake { 0% { transform: translate(1px, 1px) rotate(0deg); } 10% { transform: translate(-1px, -2px) rotate(-1deg); } 20% { transform: translate(-3px, 0px) rotate(1deg); } 30% { transform: translate(3px, 2px) rotate(0deg); } 40% { transform: translate(1px, -1px) rotate(1deg); } 50% { transform: translate(-1px, 2px) rotate(-1deg); } 60% { transform: translate(-3px, 1px) rotate(0deg); } 70% { transform: translate(3px, 1px) rotate(-1deg); } 80% { transform: translate(-1px, -1px) rotate(1deg); } 90% { transform: translate(1px, 2px) rotate(0deg); } 100% { transform: translate(1px, -2px) rotate(-1deg); } }
+  .shake-screen { animation: shake 0.5s; animation-iteration-count: 1; }
+  .matrix-mode { background-color: #000 !important; color: #00ff41 !important; font-family: 'Courier New', Courier, monospace; }
+  .matrix-mode * { border-color: #00ff41 !important; }
+  .matrix-mode .text-white { color: #00ff41 !important; }
+  .matrix-mode .bg-white\\/5 { background-color: rgba(0, 255, 65, 0.1) !important; }
+`;
 
 // --- YARDIMCI FONKSİYONLAR ---
 
-// Rastgele Takma Ad Üretici
+const MediaRenderer = ({ src, className }: { src: string, className: string }) => {
+    const isVideo = src.includes(".mp4") || src.includes(".webm");
+    if (isVideo) return <video src={src} className={className} autoPlay muted loop playsInline />;
+    return <img src={src} className={className} alt="token" />;
+};
+
 const ADJECTIVES = ["Crazy", "Degen", "Based", "Diamond", "Savage", "Lucky", "Cyber", "Rocket", "Moon", "Space"];
 const ANIMALS = ["Bull", "Bear", "Ape", "Whale", "Dolphin", "Chad", "Pepe", "Doge", "Shiba", "Cat"];
 const generateNickname = (address: string) => {
@@ -30,10 +44,7 @@ const generateNickname = (address: string) => {
     return `${ADJECTIVES[seed1]} ${ANIMALS[seed2]}`;
 };
 
-// Avatar URL (Minidenticon)
-const getAvatarUrl = (address: string) => {
-    return `https://api.dicebear.com/7.x/pixel-art/svg?seed=${address}`;
-};
+const getAvatarUrl = (address: string) => `https://api.dicebear.com/7.x/pixel-art/svg?seed=${address}`;
 
 const getTokenImage = (address: string, customImage?: string) => 
   customImage || `https://api.dyneui.com/avatar/abstract?seed=${address}&size=400&background=000000&color=FDDC11&pattern=circuit&variance=0.7`;
@@ -59,19 +70,17 @@ const CustomCandle = (props: any) => {
 
 // --- ALT BİLEŞENLER ---
 
-// 1. PnL KARTI
 const PnLCard = ({ balance, price, symbol }: { balance: string, price: number, symbol: string }) => {
     const bal = parseFloat(balance);
     const value = bal * price;
-    // Mock Entry Price (Gerçekte indexer gerekir, burada simüle ediyoruz)
     const entryPrice = useRef(price * (0.8 + Math.random() * 0.4)).current; 
     const pnl = (price - entryPrice) * bal;
     const pnlPercent = ((price - entryPrice) / entryPrice) * 100;
 
     return (
-        <div className="bg-gradient-to-br from-gray-900 to-black border border-white/10 rounded-xl p-4 mb-4 relative overflow-hidden group">
+        <div className="bg-gradient-to-br from-gray-900 to-black border border-white/10 rounded-xl p-4 mb-4 relative overflow-hidden group shadow-lg">
             <div className="absolute top-0 right-0 p-2 opacity-10 group-hover:opacity-30 transition-opacity"><TrendingUp size={64} /></div>
-            <div className="text-xs text-gray-400 mb-1">Your Position ({symbol})</div>
+            <div className="text-[10px] uppercase font-bold text-gray-500 mb-1">Your Position ({symbol})</div>
             <div className="flex justify-between items-end">
                 <div>
                     <div className="text-2xl font-black text-white">${value.toFixed(2)}</div>
@@ -82,12 +91,11 @@ const PnLCard = ({ balance, price, symbol }: { balance: string, price: number, s
                     <div className="text-xs">{pnlPercent.toFixed(2)}%</div>
                 </div>
             </div>
-            <button onClick={() => window.open(`https://twitter.com/intent/tweet?text=I'm up ${pnlPercent.toFixed(0)}% on $${symbol}! 🚀 Check it out on AION Pump!`, '_blank')} className="mt-3 w-full py-1.5 bg-blue-500/20 text-blue-400 text-xs font-bold rounded flex items-center justify-center gap-2 hover:bg-blue-500/30"><Share2 size={12}/> Flex on Twitter</button>
+            <button onClick={() => window.open(`https://twitter.com/intent/tweet?text=I'm up ${pnlPercent.toFixed(0)}% on $${symbol}! 🚀 Check it out on AION Pump!`, '_blank')} className="mt-3 w-full py-1.5 bg-blue-500/20 text-blue-400 text-xs font-bold rounded flex items-center justify-center gap-2 hover:bg-blue-500/30 transition-colors"><Share2 size={12}/> Flex on Twitter</button>
         </div>
     );
 };
 
-// 2. CHAT BOX (Pin & Nickname Özellikli)
 const ChatBox = ({ tokenAddress, creator }: { tokenAddress: string, creator: string }) => {
     const { address } = useAccount();
     const [msgs, setMsgs] = useState<any[]>([]);
@@ -117,7 +125,7 @@ const ChatBox = ({ tokenAddress, creator }: { tokenAddress: string, creator: str
     };
 
     const handlePin = (msg: any) => {
-        if (address?.toLowerCase() !== creator?.toLowerCase()) return; // Sadece Dev pinleyebilir
+        if (address?.toLowerCase() !== creator?.toLowerCase()) return;
         setPinned(msg);
         localStorage.setItem(`pin_${tokenAddress}`, JSON.stringify(msg));
         toast.success("Message Pinned!");
@@ -126,57 +134,54 @@ const ChatBox = ({ tokenAddress, creator }: { tokenAddress: string, creator: str
     return (
         <div className="flex flex-col h-[350px] relative">
             {pinned && (
-                <div className="absolute top-0 left-0 right-0 bg-[#FDDC11]/90 text-black p-2 text-xs font-bold z-10 flex justify-between items-center backdrop-blur-md border-b border-black/10">
+                <div className="absolute top-0 left-0 right-0 bg-[#FDDC11]/90 text-black p-2 text-xs font-bold z-10 flex justify-between items-center backdrop-blur-md border-b border-black/10 rounded-t-lg">
                     <div className="flex gap-2 items-center"><Pin size={12} fill="black"/> <span className="truncate">{pinned.user}: {pinned.text}</span></div>
                     {address?.toLowerCase() === creator?.toLowerCase() && <button onClick={() => {setPinned(null); localStorage.removeItem(`pin_${tokenAddress}`)}}><X size={12}/></button>}
                 </div>
             )}
             <div className={`flex-1 overflow-y-auto space-y-3 mb-3 pr-2 scrollbar-thin scrollbar-thumb-white/10 ${pinned ? 'pt-10' : ''}`}>
+                {msgs.length === 0 && <div className="text-center text-gray-500 text-xs mt-10">No messages yet. Start the hype! 🔥</div>}
                 {msgs.map((m, i) => (
                     <div key={i} className={`p-2 rounded-lg border text-xs group relative ${m.isDev ? "bg-purple-900/30 border-purple-500/50" : "bg-white/5 border-white/5"}`}>
                         <div className="flex justify-between items-center mb-1">
                             <div className="flex items-center gap-2">
-                                <img src={getAvatarUrl(m.address || "0x00")} className="w-4 h-4 rounded bg-black" />
+                                <img src={getAvatarUrl(m.address || "0x00")} className="w-4 h-4 rounded bg-black" alt="avatar" />
                                 <span className={`${m.isDev ? "text-purple-400" : "text-[#FDDC11]"} font-bold`}>{m.user} {m.isDev && "(DEV)"}</span>
                             </div>
                             <span className="text-[9px] text-gray-500">{m.time}</span>
                         </div>
                         <p className="text-gray-300 break-words pl-6">{m.text}</p>
                         {address?.toLowerCase() === creator?.toLowerCase() && (
-                            <button onClick={() => handlePin(m)} className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 text-gray-400 hover:text-white"><Pin size={10}/></button>
+                            <button onClick={() => handlePin(m)} className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 text-gray-400 hover:text-white transition-opacity"><Pin size={10}/></button>
                         )}
                     </div>
                 ))}
             </div>
             <div className="flex gap-2">
-                <input type="text" value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==='Enter' && sendMsg()} placeholder="Say something based..." className="flex-1 bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-[#FDDC11]" />
-                <button onClick={sendMsg} className="bg-[#FDDC11] text-black p-2 rounded-lg hover:bg-[#ffe55c]"><Send size={14}/></button>
+                <input type="text" value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==='Enter' && sendMsg()} placeholder="Type something..." className="flex-1 bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-[#FDDC11] transition-colors" />
+                <button onClick={sendMsg} className="bg-[#FDDC11] text-black p-2 rounded-lg hover:bg-[#ffe55c] transition-colors"><Send size={14}/></button>
             </div>
         </div>
     );
 };
 
-// 3. BUBBLE MAP (Simulated)
 const BubbleMap = ({ holders }: { holders: any[] }) => {
     return (
         <div className="h-[300px] w-full relative overflow-hidden bg-black/20 rounded-xl border border-white/5">
              <div className="absolute inset-0 flex items-center justify-center text-xs text-gray-500 pointer-events-none">Top 20 Holders Visualization</div>
              {holders.slice(0, 20).map((h, i) => {
-                 const size = Math.max(20, Math.min(100, h.percentage * 5)); // Baloncuk boyutu
-                 const top = Math.random() * 80;
-                 const left = Math.random() * 80;
+                 const size = Math.max(20, Math.min(80, h.percentage * 4));
+                 const top = Math.random() * 80 + 10;
+                 const left = Math.random() * 80 + 10;
                  return (
                      <motion.div 
                         key={i}
                         initial={{ scale: 0 }} animate={{ scale: 1 }}
-                        className="absolute rounded-full flex items-center justify-center border border-white/10 shadow-xl backdrop-blur-sm cursor-pointer hover:z-10 hover:border-[#FDDC11]"
-                        style={{ 
-                            width: size, height: size, top: `${top}%`, left: `${left}%`,
-                            background: i === 0 ? 'rgba(253, 220, 17, 0.2)' : 'rgba(255,255,255,0.05)'
-                        }}
+                        className="absolute rounded-full flex items-center justify-center border border-white/10 shadow-xl backdrop-blur-sm cursor-pointer hover:z-10 hover:border-[#FDDC11] transition-colors"
+                        style={{ width: size, height: size, top: `${top}%`, left: `${left}%`, background: i === 0 ? 'rgba(253, 220, 17, 0.2)' : 'rgba(255,255,255,0.05)' }}
                         title={`${h.address} (${h.percentage.toFixed(2)}%)`}
                      >
-                         <span className="text-[8px] text-white opacity-50 truncate w-full text-center px-1">{h.address.slice(2,5)}</span>
+                         <span className="text-[8px] text-white opacity-50 truncate w-full text-center px-1 font-mono">{h.address.slice(2,5)}</span>
                      </motion.div>
                  )
              })}
@@ -184,7 +189,54 @@ const BubbleMap = ({ holders }: { holders: any[] }) => {
     )
 }
 
-// MAIN PAGE
+const MemeGenerator = ({ tokenImage, symbol }: { tokenImage: string, symbol: string }) => {
+    const [topText, setTopText] = useState("");
+    const [bottomText, setBottomText] = useState("");
+    const canvasRef = useRef<HTMLCanvasElement>(null);
+
+    useEffect(() => {
+        const canvas = canvasRef.current;
+        if(!canvas) return;
+        const ctx = canvas.getContext("2d");
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        img.src = tokenImage;
+        img.onload = () => {
+            if(!ctx) return;
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            ctx.font = "bold 40px Impact";
+            ctx.fillStyle = "white";
+            ctx.strokeStyle = "black";
+            ctx.lineWidth = 2;
+            ctx.textAlign = "center";
+            ctx.fillText(topText.toUpperCase(), canvas.width/2, 50);
+            ctx.strokeText(topText.toUpperCase(), canvas.width/2, 50);
+            ctx.fillText(bottomText.toUpperCase(), canvas.width/2, canvas.height - 20);
+            ctx.strokeText(bottomText.toUpperCase(), canvas.width/2, canvas.height - 20);
+        };
+    }, [topText, bottomText, tokenImage]);
+
+    const downloadMeme = () => {
+        const link = document.createElement('a');
+        link.download = `${symbol}-meme.png`;
+        link.href = canvasRef.current?.toDataURL() || "";
+        link.click();
+        toast.success("Meme Downloaded! 🎨");
+    };
+
+    return (
+        <div className="flex flex-col gap-4 p-4 bg-black/20 rounded-xl">
+            <canvas ref={canvasRef} width={400} height={400} className="w-full rounded-lg border border-white/10" />
+            <div className="flex gap-2">
+                <input type="text" placeholder="Top Text" className="flex-1 bg-white/5 border border-white/10 rounded px-2 py-1 text-sm outline-none text-white" value={topText} onChange={e=>setTopText(e.target.value)} />
+                <input type="text" placeholder="Bottom Text" className="flex-1 bg-white/5 border border-white/10 rounded px-2 py-1 text-sm outline-none text-white" value={bottomText} onChange={e=>setBottomText(e.target.value)} />
+            </div>
+            <button onClick={downloadMeme} className="w-full bg-[#FDDC11] text-black font-bold py-2 rounded-lg flex items-center justify-center gap-2 hover:bg-[#ffe55c] transition-colors"><Download size={16}/> Download Meme</button>
+        </div>
+    );
+};
+
+// --- MAIN PAGE ---
 type PageProps = { params: Promise<{ id: string }>; };
 
 export default function TradePage(props: PageProps) {
@@ -194,18 +246,21 @@ export default function TradePage(props: PageProps) {
   const publicClient = usePublicClient(); 
   const { isConnected, address } = useAccount();
 
-  // --- STATES ---
+  // STATES
   const [activeTab, setActiveTab] = useState<"buy" | "sell">("buy");
-  const [bottomTab, setBottomTab] = useState<"trades" | "chat" | "holders" | "bubbles">("trades");
+  const [bottomTab, setBottomTab] = useState<"trades" | "chat" | "holders" | "bubbles" | "meme">("trades");
   const [amount, setAmount] = useState("");
   const [slippage, setSlippage] = useState(1);
   const [showConfetti, setShowConfetti] = useState(false);
   const [isShaking, setIsShaking] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  
-  // MODLAR
   const [isMatrixMode, setIsMatrixMode] = useState(false);
   const [isTvMode, setIsTvMode] = useState(false);
+
+  // PRO SETTINGS
+  const [sniperMode, setSniperMode] = useState(false);
+  const [mevProtect, setMevProtect] = useState(false);
+  const [priceAlert, setPriceAlert] = useState("");
 
   // DATA
   const [chartData, setChartData] = useState<any[]>([]);
@@ -234,9 +289,10 @@ export default function TradePage(props: PageProps) {
   const image = metadata ? metadata[4] : "";
   const tokenImage = getTokenImage(tokenAddress, image);
 
-  // --- ACTIONS ---
-  
-  // BURN
+  // Risk Score
+  const riskScore = holderList.length < 5 ? 20 : holderList.length < 20 ? 50 : 90;
+
+  // ACTIONS
   const { writeContract: burnContract } = useWriteContract();
   const handleBurn = () => {
       try {
@@ -246,14 +302,12 @@ export default function TradePage(props: PageProps) {
       } catch(e) { toast.error("Burn failed"); }
   };
 
-  // TIP
   const { sendTransaction } = useSendTransaction();
   const handleTip = async () => {
       if(!creatorAddress) return;
       try { await sendTransaction({ to: creatorAddress, value: parseEther("1") }); toast.success("Tip sent! 💸"); playSound('tip'); } catch(e) { toast.error("Tip failed"); }
   };
 
-  // REFERRAL LINK
   const copyReferral = () => {
       const url = `${window.location.origin}/trade/${tokenAddress}?ref=${address}`;
       navigator.clipboard.writeText(url);
@@ -272,21 +326,18 @@ export default function TradePage(props: PageProps) {
       const relevantSells = sellLogs.filter((l: any) => l.args.token.toLowerCase() === tokenAddress.toLowerCase());
       const allEvents = [...relevantBuys.map(l => ({ ...l, type: "BUY" })), ...relevantSells.map(l => ({ ...l, type: "SELL" }))].sort((a, b) => Number(a.blockNumber) - Number(b.blockNumber) || a.logIndex - b.logIndex);
 
-      // Holders Logic
       const balances: Record<string, bigint> = {};
       relevantBuys.forEach((l:any) => { balances[l.args.buyer] = (balances[l.args.buyer] || 0n) + (l.args.amountTokens || 0n); });
       relevantSells.forEach((l:any) => { balances[l.args.seller] = (balances[l.args.seller] || 0n) - (l.args.amountTokens || 0n); });
       const sortedHolders = Object.entries(balances).filter(([_, bal]) => bal > 10n).sort(([, a], [, b]) => (b > a ? 1 : -1)).map(([addr, bal]) => ({ address: addr, balance: bal, percentage: (Number(bal) * 100) / 1_000_000_000 / 10**18 }));
       setHolderList(sortedHolders);
       
-      // Pie Logic
       const top5 = sortedHolders.slice(0, 5);
       const others = sortedHolders.slice(5).reduce((acc, curr) => acc + curr.percentage, 0);
       const pData = top5.map((h, i) => ({ name: `${h.address.slice(0,4)}`, value: h.percentage, fill: ['#FDDC11', '#fbbf24', '#f59e0b', '#d97706', '#b45309'][i] }));
       if (others > 0) pData.push({ name: 'Others', value: others, fill: '#374151' });
       setPieData(pData);
 
-      // Chart & Trade List
       const newChartData: any[] = [];
       const newTrades: any[] = [];
       let lastPrice = 0.0000001;
@@ -294,11 +345,9 @@ export default function TradePage(props: PageProps) {
       allEvents.forEach((event: any) => {
         if (processedTxHashes.current.has(event.transactionHash)) return;
         processedTxHashes.current.add(event.transactionHash);
-
         const maticVal = parseFloat(formatEther(event.args.amountMATIC || 0n));
         const tokenVal = parseFloat(formatEther(event.args.amountTokens || 0n));
         let executionPrice = tokenVal > 0 ? maticVal / tokenVal : lastPrice;
-        
         newTrades.unshift({
           user: event.args.buyer || event.args.seller,
           type: event.type,
@@ -334,14 +383,8 @@ export default function TradePage(props: PageProps) {
     const tokenVal = parseFloat(formatEther(log.args.amountTokens || 0n));
     const executionPrice = tokenVal > 0 ? maticVal / tokenVal : (chartData.length > 0 ? chartData[chartData.length-1].price : 0);
     
-    // WHALE ALERT
     if (maticVal > 100) {
-        toast((t) => (
-            <div className="flex items-center gap-2">
-                <span className="text-2xl">🐋</span>
-                <div><b>WHALE ALERT!</b><br/>Someone just moved {maticVal.toFixed(0)} MATIC!</div>
-            </div>
-        ), { duration: 5000, style: { background: '#3b0764', color: '#fff', border: '1px solid #FDDC11' }});
+        toast((t) => (<div className="flex items-center gap-2"><span className="text-2xl">🐋</span><div><b>WHALE ALERT!</b><br/>Someone moved {maticVal.toFixed(0)} MATIC!</div></div>), { duration: 5000, style: { background: '#3b0764', color: '#fff', border: '1px solid #FDDC11' }});
         playSound('alert');
     } else {
         playSound(type === "BUY" ? 'buy' : 'sell');
@@ -388,14 +431,9 @@ export default function TradePage(props: PageProps) {
   };
 
   return (
-    <div className={`min-h-screen font-sans selection:bg-[#FDDC11] selection:text-black ${isShaking ? "shake-screen" : ""} ${isMatrixMode ? "font-mono bg-black text-green-500" : "bg-[#0a0e27] text-white"}`}>
+    <div className={`min-h-screen font-sans selection:bg-[#FDDC11] selection:text-black ${isShaking ? "shake-screen" : ""} ${isMatrixMode ? "matrix-mode" : "bg-[#0a0e27] text-white"}`}>
       
-      {/* SHAKE STYLE */}
-      <style>{`
-        @keyframes shake { 0% { transform: translate(1px, 1px) rotate(0deg); } 10% { transform: translate(-1px, -2px) rotate(-1deg); } 20% { transform: translate(-3px, 0px) rotate(1deg); } 30% { transform: translate(3px, 2px) rotate(0deg); } 40% { transform: translate(1px, -1px) rotate(1deg); } 50% { transform: translate(-1px, 2px) rotate(-1deg); } 60% { transform: translate(-3px, 1px) rotate(0deg); } 70% { transform: translate(3px, 1px) rotate(-1deg); } 80% { transform: translate(-1px, -1px) rotate(1deg); } 90% { transform: translate(1px, 2px) rotate(0deg); } 100% { transform: translate(1px, -2px) rotate(-1deg); } }
-        .shake-screen { animation: shake 0.5s; animation-iteration-count: 1; }
-        .matrix-mode * { border-color: #22c55e !important; }
-      `}</style>
+      <style>{styles}</style>
 
       <Toaster position="top-right" toastOptions={{ style: { background: '#181a20', color: '#fff', border: '1px solid #333' } }} />
       {showConfetti && <Confetti width={window.innerWidth} height={window.innerHeight} recycle={false} numberOfPieces={300} />}
@@ -404,14 +442,10 @@ export default function TradePage(props: PageProps) {
       <header className="sticky top-0 z-40 bg-black/80 backdrop-blur-md border-b border-white/5 p-3 flex justify-between items-center">
         <Link href="/" className="flex items-center gap-2 text-gray-400 hover:text-white font-bold"><ArrowLeft size={18} /> Board</Link>
         <div className="flex gap-2 items-center">
-             {/* TV MODE BUTTON */}
              <button onClick={() => setIsTvMode(!isTvMode)} className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-gray-400 hover:text-[#FDDC11]" title="TV Mode"><Monitor size={18}/></button>
-             {/* MATRIX MODE BUTTON */}
-             <button onClick={() => setIsMatrixMode(!isMatrixMode)} className={`p-2 rounded-lg bg-white/5 hover:bg-white/10 ${isMatrixMode ? "text-green-500" : "text-gray-400"}`} title="Matrix Mode"><TerminalIcon /></button>
-             {/* REFERRAL BUTTON */}
-             <button onClick={copyReferral} className="flex items-center gap-1 bg-blue-500/20 text-blue-500 px-3 py-1.5 rounded-full text-xs font-bold hover:bg-blue-500/30"><Ticket size={14}/> Invite</button>
-             {/* TIP BUTTON */}
-             <button onClick={handleTip} className="flex items-center gap-1 bg-yellow-500/20 text-yellow-500 px-3 py-1.5 rounded-full text-xs font-bold hover:bg-yellow-500/30"><Gift size={14}/> Tip Dev</button>
+             <button onClick={() => setIsMatrixMode(!isMatrixMode)} className={`p-2 rounded-lg bg-white/5 hover:bg-white/10 ${isMatrixMode ? "text-green-500" : "text-gray-400"}`} title="Matrix Mode"><LayoutGrid size={18}/></button>
+             <button onClick={copyReferral} className="flex items-center gap-1 bg-blue-500/20 text-blue-500 px-3 py-1.5 rounded-full text-xs font-bold hover:bg-blue-500/30 transition-colors"><Ticket size={14}/> Invite</button>
+             <button onClick={handleTip} className="flex items-center gap-1 bg-yellow-500/20 text-yellow-500 px-3 py-1.5 rounded-full text-xs font-bold hover:bg-yellow-500/30 transition-colors"><Gift size={14}/> Tip Dev</button>
              <ConnectButton showBalance={false} accountStatus="avatar" chainStatus="none" />
         </div>
       </header>
@@ -419,7 +453,7 @@ export default function TradePage(props: PageProps) {
       {/* TV MODE OVERLAY */}
       {isTvMode ? (
          <div className="fixed inset-0 z-50 bg-black p-4 flex flex-col">
-            <button onClick={() => setIsTvMode(false)} className="absolute top-4 right-4 bg-white/10 p-2 rounded-full z-50 text-white"><X/></button>
+            <button onClick={() => setIsTvMode(false)} className="absolute top-4 right-4 bg-white/10 p-2 rounded-full z-50 text-white hover:bg-white/20"><X/></button>
             <div className="h-[70%] w-full">
                 <ResponsiveContainer width="100%" height="100%">
                     <ComposedChart data={chartData}><XAxis dataKey="name" hide/><YAxis domain={['auto', 'auto']} orientation="right" tick={{fill:'#FDDC11'}}/><Bar dataKey="price" shape={<CustomCandle />} isAnimationActive={false}>{chartData.map((e, i) => (<Cell key={i} fill={e.fill} />))}</Bar></ComposedChart>
@@ -427,8 +461,8 @@ export default function TradePage(props: PageProps) {
             </div>
             <div className="h-[30%] w-full overflow-hidden flex gap-4 mt-4">
                 <div className="text-6xl font-black text-white self-center">{currentPrice.toFixed(8)} MATIC</div>
-                <div className="flex-1 overflow-y-auto">
-                    {tradeHistory.slice(0,10).map((t,i) => <div key={i} className={`flex justify-between text-lg font-mono ${t.type==='BUY'?'text-green-500':'text-red-500'}`}><span>{t.type}</span><span>{t.maticAmount} MATIC</span></div>)}
+                <div className="flex-1 overflow-y-auto font-mono text-sm">
+                    {tradeHistory.slice(0,10).map((t,i) => <div key={i} className={`flex justify-between border-b border-white/5 py-1 ${t.type==='BUY'?'text-green-500':'text-red-500'}`}><span>{t.type}</span><span>{t.maticAmount} MATIC</span></div>)}
                 </div>
             </div>
          </div>
@@ -439,14 +473,14 @@ export default function TradePage(props: PageProps) {
         <div className="lg:col-span-8 flex flex-col gap-6">
             {/* TOKEN INFO */}
             <div className="flex items-start gap-4">
-                <div className="w-16 h-16 bg-[#2d1b4e] rounded-xl border border-white/10 overflow-hidden shadow-lg"><img src={getTokenImage(tokenAddress, image)} className="w-full h-full object-cover"/></div>
+                <div className="w-16 h-16 bg-[#2d1b4e] rounded-xl border border-white/10 overflow-hidden shadow-lg"><MediaRenderer src={tokenImage} className="w-full h-full object-cover"/></div>
                 <div className="flex-1">
                     <div className="flex items-center gap-3"><h1 className="text-2xl font-bold">{name?.toString() || "Loading..."}</h1><span className="text-sm font-bold text-gray-400">[{symbol?.toString() || "TKN"}]</span></div>
                     {desc && <p className="text-sm text-gray-400 mt-2 line-clamp-2">{desc}</p>}
                     <div className="flex gap-2 mt-2">
-                        {twitter && <a href={twitter} target="_blank" className="p-2 bg-[#2d1b4e] rounded hover:text-[#FDDC11]"><Twitter size={14}/></a>}
-                        {telegram && <a href={telegram} target="_blank" className="p-2 bg-[#2d1b4e] rounded hover:text-[#FDDC11]"><Send size={14}/></a>}
-                        {web && <a href={web} target="_blank" className="p-2 bg-[#2d1b4e] rounded hover:text-[#FDDC11]"><Globe size={14}/></a>}
+                        {twitter && <a href={twitter} target="_blank" className="p-2 bg-[#2d1b4e] rounded hover:text-[#FDDC11] transition-colors"><Twitter size={14}/></a>}
+                        {telegram && <a href={telegram} target="_blank" className="p-2 bg-[#2d1b4e] rounded hover:text-[#FDDC11] transition-colors"><Send size={14}/></a>}
+                        {web && <a href={web} target="_blank" className="p-2 bg-[#2d1b4e] rounded hover:text-[#FDDC11] transition-colors"><Globe size={14}/></a>}
                     </div>
                 </div>
             </div>
@@ -495,7 +529,7 @@ export default function TradePage(props: PageProps) {
                     )}
                     {bottomTab === "bubbles" && <BubbleMap holders={holderList} />}
                     {bottomTab === "chat" && <ChatBox tokenAddress={tokenAddress} creator={creatorAddress} />}
-                    {bottomTab === "meme" && <div className="text-center p-10 text-gray-500">Meme generator loading... (Add Component Here)</div>}
+                    {bottomTab === "meme" && <MemeGenerator tokenImage={tokenImage} symbol={symbol?.toString() || "TKN"} />}
                 </div>
             </div>
         </div>
@@ -506,9 +540,22 @@ export default function TradePage(props: PageProps) {
             {userTokenBalance && userTokenBalance > 0n && <PnLCard balance={formatEther(userTokenBalance)} price={currentPrice} symbol={symbol?.toString() || "TKN"} />}
 
             <div className={`border rounded-2xl p-5 sticky top-24 ${isMatrixMode ? "bg-black border-green-500" : "bg-[#2d1b4e] border-white/10"}`}>
+                <div className="flex justify-between items-center mb-4">
+                     <button onClick={() => setShowSettings(!showSettings)} className="text-gray-400 hover:text-white transition-colors"><Settings size={16}/></button>
+                     {showSettings && (
+                        <div className="absolute top-12 right-5 bg-[#1a0e2e] border border-white/20 p-3 rounded-lg z-50 shadow-xl w-48 animate-in fade-in zoom-in-95 duration-200">
+                            <div className="text-xs font-bold text-white mb-2">Pro Settings</div>
+                            <div className="flex items-center justify-between mb-2"><span className="text-xs text-gray-400 flex items-center gap-1"><Crosshair size={10}/> Sniper Mode</span><input type="checkbox" checked={sniperMode} onChange={e=>setSniperMode(e.target.checked)} className="accent-[#FDDC11]"/></div>
+                            <div className="flex items-center justify-between mb-2"><span className="text-xs text-gray-400 flex items-center gap-1"><Lock size={10}/> MEV Protect</span><input type="checkbox" checked={mevProtect} onChange={e=>setMevProtect(e.target.checked)} className="accent-[#FDDC11]"/></div>
+                            <div className="text-xs text-gray-400 mb-1">Price Alert</div>
+                            <input type="text" placeholder="Target Price..." className="w-full bg-white/5 border border-white/10 rounded px-2 py-1 text-xs text-white outline-none focus:border-[#FDDC11]" value={priceAlert} onChange={e=>setPriceAlert(e.target.value)} />
+                        </div>
+                     )}
+                </div>
+
                 <div className="grid grid-cols-2 gap-3 mb-6">
-                    <button onClick={() => setActiveTab("buy")} className={`py-3 rounded-xl font-black ${activeTab==="buy"?"bg-green-500 text-white":"bg-white/5 text-gray-400"}`}>Buy</button>
-                    <button onClick={() => setActiveTab("sell")} className={`py-3 rounded-xl font-black ${activeTab==="sell"?"bg-red-500 text-white":"bg-white/5 text-gray-400"}`}>Sell</button>
+                    <button onClick={() => setActiveTab("buy")} className={`py-3 rounded-xl font-black transition-colors ${activeTab==="buy"?"bg-green-500 text-white":"bg-white/5 text-gray-400"}`}>Buy</button>
+                    <button onClick={() => setActiveTab("sell")} className={`py-3 rounded-xl font-black transition-colors ${activeTab==="sell"?"bg-red-500 text-white":"bg-white/5 text-gray-400"}`}>Sell</button>
                 </div>
 
                 <div className="bg-[#1a0e2e] rounded-xl p-4 mb-4 border border-white/5">
@@ -518,27 +565,27 @@ export default function TradePage(props: PageProps) {
 
                 <div className="grid grid-cols-4 gap-2 mb-4">
                     {[10, 25, 50, 100].map(p => (
-                        <button key={p} onClick={() => handlePercentage(p)} className="py-2 rounded-lg bg-white/5 hover:bg-white/10 text-xs font-bold">{p === 100 ? "MAX" : `${p}%`}</button>
+                        <button key={p} onClick={() => handlePercentage(p)} className="py-2 rounded-lg bg-white/5 hover:bg-white/10 text-xs font-bold transition-colors">{p === 100 ? "MAX" : `${p}%`}</button>
                     ))}
                 </div>
 
                 {/* BURN BUTTON (ONLY ON SELL TAB) */}
                 {activeTab === "sell" && (
-                    <button onClick={handleBurn} className="w-full py-2 mb-4 bg-orange-600/20 text-orange-500 border border-orange-500/50 rounded-lg text-xs font-bold flex items-center justify-center gap-2 hover:bg-orange-600/40"><Flame size={12}/> Burn Tokens</button>
+                    <button onClick={handleBurn} className="w-full py-2 mb-4 bg-orange-600/20 text-orange-500 border border-orange-500/50 rounded-lg text-xs font-bold flex items-center justify-center gap-2 hover:bg-orange-600/40 transition-colors"><Flame size={12}/> Burn Tokens</button>
                 )}
 
                 <div className="flex justify-between items-center px-1 mb-4">
                     <div className="flex items-center gap-2">
                          <Shield size={14} className={riskScore > 70 ? "text-green-500" : "text-red-500"} />
-                         <span className={`text-xs font-bold ${riskScore > 70 ? "text-green-500" : "text-red-500"}`}>Risk: {riskScore}%</span>
+                         <span className={`text-xs font-bold ${riskScore > 70 ? "text-green-500" : "text-red-500"}`}>Risk: {riskScore > 70 ? "LOW" : "HIGH"} ({riskScore}%)</span>
                     </div>
                     <div className="flex gap-2 items-center">
                         <span className="text-xs text-gray-500">Slip:</span>
-                        <select value={slippage} onChange={e=>setSlippage(Number(e.target.value))} className="bg-transparent text-[#FDDC11] text-xs font-bold outline-none"><option value={1}>1%</option><option value={5}>5%</option><option value={10}>10%</option></select>
+                        <select value={slippage} onChange={e=>setSlippage(Number(e.target.value))} className="bg-transparent text-[#FDDC11] text-xs font-bold outline-none cursor-pointer"><option value={1}>1%</option><option value={5}>5%</option><option value={10}>10%</option></select>
                     </div>
                 </div>
 
-                <button onClick={handleTx} disabled={isPending || isConfirming} className={`w-full py-4 rounded-xl font-black ${activeTab==="buy"?"bg-green-500 hover:bg-green-600":"bg-red-500 hover:bg-red-600"} text-white transition-all`}>
+                <button onClick={handleTx} disabled={isPending || isConfirming} className={`w-full py-4 rounded-xl font-black ${activeTab==="buy"?"bg-green-500 hover:bg-green-600":"bg-red-500 hover:bg-red-600"} text-white transition-all disabled:opacity-50`}>
                     {isPending ? "Processing..." : activeTab === "buy" ? "PLACE BUY ORDER" : "PLACE SELL ORDER"}
                 </button>
             </div>
@@ -561,6 +608,3 @@ export default function TradePage(props: PageProps) {
     </div>
   );
 }
-
-// Icon for Matrix
-const TerminalIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg>;
