@@ -61,9 +61,10 @@ const CustomCandle = (props: any) => {
 const PnLCard = ({ balance, price, symbol }: { balance: string, price: number, symbol: string }) => {
     const bal = parseFloat(balance);
     const value = bal * price;
-    const entryPrice = price * 0.8; 
+    const entryPrice = price > 0 ? price * 0.8 : 0; 
     const pnl = (price - entryPrice) * bal;
-    const pnlPercent = ((price - entryPrice) / entryPrice) * 100;
+    const pnlPercent = entryPrice > 0 ? ((price - entryPrice) / entryPrice) * 100 : 0;
+    
     return (
         <div className="bg-gradient-to-br from-gray-900 to-black border border-white/10 rounded-xl p-4 mb-4">
             <div className="text-[10px] uppercase font-bold text-gray-500 mb-1">Your Position ({symbol})</div>
@@ -75,8 +76,8 @@ const PnLCard = ({ balance, price, symbol }: { balance: string, price: number, s
     );
 };
 
-// FIX: Safe Chat Component to prevent hydration errors
-const ChatBox = ({ tokenAddress }: { tokenAddress: string }) => {
+// FIX: ChatBox now safely receives and uses creatorAddress if needed, but defaults safely
+const ChatBox = ({ tokenAddress, creatorAddress }: { tokenAddress: string, creatorAddress?: string }) => {
     const { address } = useAccount();
     const [msgs, setMsgs] = useState<any[]>([]);
     const [input, setInput] = useState("");
@@ -94,7 +95,12 @@ const ChatBox = ({ tokenAddress }: { tokenAddress: string }) => {
 
     const sendMsg = () => { 
         if(!input.trim()) return; 
-        const newMsg = { user: generateNickname(address || "0x00"), text: input, time: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) }; 
+        const newMsg = { 
+            user: generateNickname(address || "0x00"), 
+            text: input, 
+            time: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}),
+            isDev: creatorAddress && address && creatorAddress.toLowerCase() === address.toLowerCase()
+        }; 
         const updated = [...msgs, newMsg]; 
         setMsgs(updated); 
         localStorage.setItem(`chat_${tokenAddress}`, JSON.stringify(updated)); 
@@ -107,7 +113,15 @@ const ChatBox = ({ tokenAddress }: { tokenAddress: string }) => {
         <div className="flex flex-col h-[300px]">
             <div className="flex-1 overflow-y-auto space-y-2 mb-3 pr-2 scrollbar-thin scrollbar-thumb-white/10">
                 {msgs.length === 0 && <div className="text-center text-gray-500 text-xs mt-10">Start the conversation!</div>}
-                {msgs.map((m, i) => (<div key={i} className="p-2 rounded-lg bg-white/5 text-xs"><div className="flex justify-between mb-1"><span className="text-[#FDDC11] font-bold">{m.user}</span><span className="text-gray-500">{m.time}</span></div><p className="text-gray-300">{m.text}</p></div>))}
+                {msgs.map((m, i) => (
+                    <div key={i} className={`p-2 rounded-lg text-xs ${m.isDev ? "bg-purple-900/30 border border-purple-500/30" : "bg-white/5"}`}>
+                        <div className="flex justify-between mb-1">
+                            <span className={`${m.isDev ? "text-purple-400 font-bold" : "text-[#FDDC11] font-bold"}`}>{m.user} {m.isDev && "(DEV)"}</span>
+                            <span className="text-gray-500">{m.time}</span>
+                        </div>
+                        <p className="text-gray-300">{m.text}</p>
+                    </div>
+                ))}
             </div>
             <div className="flex gap-2"><input type="text" value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==='Enter' && sendMsg()} className="flex-1 bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-[#FDDC11]" /><button onClick={sendMsg} className="bg-[#FDDC11] text-black p-2 rounded-lg"><Send size={14}/></button></div>
         </div>
@@ -129,7 +143,7 @@ const BubbleMap = ({ holders }: { holders: any[] }) => {
     )
 }
 
-const MemeGenerator = ({ tokenImage, symbol }: { tokenImage: string, symbol: string }) => {
+const MemeGenerator = ({ tokenImage }: { tokenImage: string, symbol: string }) => {
     return <div className="p-10 text-center text-gray-500 flex flex-col items-center"><ImageIcon size={40} className="mb-2 opacity-50"/><div>Meme Generator Loading...</div></div>;
 };
 
@@ -160,12 +174,9 @@ export default function TradePage({ params }: { params: { id: string } }) {
   // READS
   const { data: maticBalance } = useBalance({ address: address });
   const { data: userTokenBalance, refetch: refetchTokenBalance } = useReadContract({ address: tokenAddress, abi: erc20Abi, functionName: "balanceOf", args: [address as `0x${string}`], query: { enabled: !!address } });
-  
   const { data: allowance, refetch: refetchAllowance } = useReadContract({ 
       address: tokenAddress, abi: erc20Abi, functionName: "allowance", args: [address as `0x${string}`, CONTRACT_ADDRESS], query: { enabled: !!address } 
   });
-
-  // IMPORTANT: Read sales data directly to show curve progress even without events
   const { data: salesData, refetch: refetchSales } = useReadContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "sales", args: [tokenAddress] });
   const { data: name } = useReadContract({ address: tokenAddress, abi: [{ name: "name", type: "function", inputs: [], outputs: [{ type: "string" }], stateMutability: "view" }], functionName: "name" });
   const { data: symbol } = useReadContract({ address: tokenAddress, abi: [{ name: "symbol", type: "function", inputs: [], outputs: [{ type: "string" }], stateMutability: "view" }], functionName: "symbol" });
@@ -177,24 +188,23 @@ export default function TradePage({ params }: { params: { id: string } }) {
   const twitter = metadata ? metadata[6] : "";
   const telegram = metadata ? metadata[7] : "";
   const web = metadata ? metadata[8] : "";
-
   const tokenImage = getTokenImage(tokenAddress);
-  
-  // LIVE DATA CALCULATION (From Contract State, NOT Events)
+
+  // SAFE DATA PARSING
   const collateralStr = salesData ? formatEther(salesData[1] as bigint) : "0";
   const tokensSoldStr = salesData ? formatEther(salesData[3] as bigint) : "0";
   const collateralVal = parseFloat(collateralStr);
   const tokensSoldVal = parseFloat(tokensSoldStr);
+  const creatorAddress = salesData ? salesData[0] : "";
 
-  // Bonding Curve Logic: 1B Token Total.
+  // PROGRESS & PRICE
   const progress = (tokensSoldVal / 1_000_000_000) * 100;
   const realProgress = Math.min(progress, 100);
   
-  // Simple Price Calculation based on current state (Matic Reserve / Tokens Sold)
-  // This provides a price even if history fetch fails
+  // Calculate price from contract state directly if chart is empty
   const estimatedPrice = tokensSoldVal > 0 ? collateralVal / tokensSoldVal : 0.0000001;
-  const finalPrice = chartData.length > 0 ? chartData[chartData.length - 1].price : estimatedPrice;
-  const marketCap = finalPrice * 1_000_000_000;
+  const currentPrice = chartData.length > 0 ? chartData[chartData.length - 1].price : estimatedPrice;
+  const marketCap = currentPrice * 1_000_000_000;
 
   const needsApproval = activeTab === "sell" && (!allowance || (amount && parseFloat(amount) > parseFloat(formatEther(allowance as bigint))));
 
@@ -230,12 +240,13 @@ export default function TradePage({ params }: { params: { id: string } }) {
     } catch(e) { toast.error("Transaction failed"); toast.dismiss('tx'); }
   };
 
-  // DATA ENGINE
+  // DATA ENGINE (FIXED RPC LIMIT & ERROR HANDLING)
   const fetchDataEngine = async () => {
     if (!publicClient) return;
     try {
       const blockNumber = await publicClient.getBlockNumber();
-      const fromBlock = blockNumber - 3000n; 
+      // FIX: Reduced block range to 990 to be safe under the 1000 limit of most public RPCs
+      const fromBlock = blockNumber - 990n; 
 
       const [buyLogs, sellLogs] = await Promise.all([
         publicClient.getContractEvents({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, eventName: 'Buy', fromBlock }),
@@ -258,7 +269,7 @@ export default function TradePage({ params }: { params: { id: string } }) {
       relevantBuys.forEach((l:any) => { const amt = l.args.amountTokens ? BigInt(l.args.amountTokens) : 0n; balances[l.args.buyer] = (balances[l.args.buyer] || 0n) + amt; });
       relevantSells.forEach((l:any) => { const amt = l.args.amountTokens ? BigInt(l.args.amountTokens) : 0n; balances[l.args.seller] = (balances[l.args.seller] || 0n) - amt; });
       const sortedHolders = Object.entries(balances)
-          .filter(([_, bal]) => bal > 10n)
+          .filter(([_, bal]) => bal > 1000n)
           .sort(([, a], [, b]) => (b > a ? 1 : -1))
           .map(([addr, bal]) => ({ address: addr, percentage: (Number(bal) * 100) / 1_000_000_000 / 10**18 }));
       
@@ -368,7 +379,7 @@ export default function TradePage({ params }: { params: { id: string } }) {
             </div>
 
             <div className="border border-white/10 rounded-2xl p-5 h-[450px] bg-[#2d1b4e]/50">
-                <div className="flex justify-between items-center mb-4"><div className="flex gap-4"><div className="text-lg font-bold">{finalPrice.toFixed(8)} MATIC</div><div className="text-lg font-bold text-[#FDDC11]">MC: {(marketCap).toLocaleString()} MATIC</div></div></div>
+                <div className="flex justify-between items-center mb-4"><div className="flex gap-4"><div className="text-lg font-bold">{currentPrice.toFixed(8)} MATIC</div><div className="text-lg font-bold text-[#FDDC11]">MC: {(marketCap).toLocaleString()} MATIC</div></div></div>
                 <ResponsiveContainer width="100%" height="90%"><ComposedChart data={chartData}><YAxis domain={['auto', 'auto']} hide /><Tooltip contentStyle={{ backgroundColor: '#181a20', border: '1px solid #333' }} /><Bar dataKey="price" shape={<CustomCandle />} isAnimationActive={false}>{chartData.map((e, i) => (<Cell key={i} fill={e.price > (chartData[i-1]?.price || 0) ? '#10b981' : '#ef4444'} />))}</Bar></ComposedChart></ResponsiveContainer>
             </div>
 
@@ -400,7 +411,7 @@ export default function TradePage({ params }: { params: { id: string } }) {
 
         {/* RIGHT COLUMN: TRADE */}
         <div className="lg:col-span-4 space-y-6">
-            {userTokenBalance ? userTokenBalance > 0n && <PnLCard balance={formatEther(userTokenBalance)} price={finalPrice} symbol={symbol?.toString() || "TKN"} /> : null}
+            {userTokenBalance ? userTokenBalance > 0n && <PnLCard balance={formatEther(userTokenBalance)} price={currentPrice} symbol={symbol?.toString() || "TKN"} /> : null}
             
             <div className="border border-white/10 rounded-2xl p-5 sticky top-24 bg-[#2d1b4e]">
                 <div className="grid grid-cols-2 gap-3 mb-6">
