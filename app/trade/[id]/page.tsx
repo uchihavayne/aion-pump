@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { ArrowLeft, Wallet, Star, TrendingUp, Coins, Copy, LogOut, Trophy, Shield, Award, Zap, Edit2, Check, X, Users, BarChart3, UserCheck } from "lucide-react";
 import { useAccount, useReadContract, usePublicClient, useDisconnect, useReadContracts } from "wagmi";
 import Link from "next/link";
@@ -10,14 +10,37 @@ import { motion } from "framer-motion";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import toast, { Toaster } from 'react-hot-toast';
 
+// Token verisi tipi
+interface TokenData {
+  address: string;
+  name: string;
+  symbol: string;
+  balance: string;
+  isFav: boolean;
+  collateral: string;
+  tokenReserves: string;
+}
+
+// Top holder tipi
+interface TopHolder {
+  address: string;
+  percentage: number;
+}
+
+// Trader tipi
+interface Trader {
+  address: string;
+  nickname: string;
+}
+
 export default function ProfilePage() {
   const { address, isConnected } = useAccount();
   const { disconnect } = useDisconnect();
   
   // MEVCUT STATES
   const [activeTab, setActiveTab] = useState<"held" | "favorites">("held");
-  const [heldTokens, setHeldTokens] = useState<any[]>([]);
-  const [favTokens, setFavTokens] = useState<any[]>([]);
+  const [heldTokens, setHeldTokens] = useState<TokenData[]>([]);
+  const [favTokens, setFavTokens] = useState<TokenData[]>([]);
   const [loading, setLoading] = useState(false);
 
   // YENİ EKLENEN STATES (LEVEL, XP, NICKNAME)
@@ -30,10 +53,10 @@ export default function ProfilePage() {
   
   // YENİ: Traders, Holders ve Bonding Curve verileri
   const [tradersCount, setTradersCount] = useState(0);
-  const [uniqueTraders, setUniqueTraders] = useState<any[]>([]);
+  const [uniqueTraders, setUniqueTraders] = useState<Trader[]>([]);
   const [holdersStats, setHoldersStats] = useState({
     total: 0,
-    topHolders: [] as any[]
+    topHolders: [] as TopHolder[]
   });
   const [bondingCurveStats, setBondingCurveStats] = useState({
     totalLiquidity: 0,
@@ -45,40 +68,39 @@ export default function ProfilePage() {
   
   // Kontrattan tüm tokenları al
   const { data: allTokens } = useReadContract({ 
-    address: CONTRACT_ADDRESS, 
+    address: CONTRACT_ADDRESS as `0x${string}`, 
     abi: CONTRACT_ABI, 
     functionName: "getAllTokens" 
   });
 
   // YENİ: Token metadata'larını toplu olarak al
+  const tokenAddresses = allTokens as string[] || [];
   const { data: tokensMetadata } = useReadContracts({
-    contracts: allTokens ? (allTokens as string[]).map(tokenAddr => ({
+    contracts: tokenAddresses.map(tokenAddr => ({
       address: CONTRACT_ADDRESS as `0x${string}`,
       abi: CONTRACT_ABI,
       functionName: "tokenMetadata",
-      args: [tokenAddr]
-    })) : []
+      args: [tokenAddr as `0x${string}`]
+    }))
   });
 
-  // YENİ: Kontrat verilerini çek
-  const fetchContractData = async () => {
-    if (!publicClient || !address || !allTokens) return;
+  // YENİ: Kontrat verilerini çek - useCallback ile memoize et
+  const fetchContractData = useCallback(async () => {
+    if (!publicClient || !address || !allTokens || !Array.isArray(allTokens)) return;
 
     try {
       console.log("🔍 Fetching contract data...");
       
       // 1. Tüm işlemleri (trades) al
       const tradersSet = new Set<string>();
-      let totalTrades = 0;
       
-      // Son 1000 bloğu tarayarak işlemleri bul
       try {
         const currentBlock = await publicClient.getBlockNumber();
         const fromBlock = currentBlock > 2000n ? currentBlock - 1000n : 0n;
         
         // Buy event'larını al
         const buyLogs = await publicClient.getContractEvents({
-          address: CONTRACT_ADDRESS,
+          address: CONTRACT_ADDRESS as `0x${string}`,
           abi: CONTRACT_ABI,
           eventName: 'Buy',
           fromBlock,
@@ -87,7 +109,7 @@ export default function ProfilePage() {
         
         // Sell event'larını al
         const sellLogs = await publicClient.getContractEvents({
-          address: CONTRACT_ADDRESS,
+          address: CONTRACT_ADDRESS as `0x${string}`,
           abi: CONTRACT_ABI,
           eventName: 'Sell',
           fromBlock,
@@ -104,7 +126,7 @@ export default function ProfilePage() {
         setTradersCount(tradersSet.size);
         
         // Unique traders listesi (ilk 10)
-        const uniqueTradersList = Array.from(tradersSet).slice(0, 10).map(addr => ({
+        const uniqueTradersList: Trader[] = Array.from(tradersSet).slice(0, 10).map(addr => ({
           address: addr,
           nickname: `${addr.slice(0, 6)}...${addr.slice(-4)}`
         }));
@@ -115,23 +137,17 @@ export default function ProfilePage() {
       }
 
       // 2. Holders istatistiklerini hesapla
-      const holderMap = new Map<string, bigint>();
       let totalHolders = 0;
       
-      for (const tokenAddr of (allTokens as string[])) {
+      for (const tokenAddr of allTokens) {
         try {
-          // Token'un toplam sahiplerini bul (basit yaklaşım)
-          // Gerçek implementasyonda token kontratından holder listesi alınmalı
           const totalSupply = await publicClient.readContract({
             address: tokenAddr as `0x${string}`,
             abi: erc20Abi,
             functionName: "totalSupply"
           });
           
-          // Eğer totalSupply > 0 ise, en az 1 holder var
           if (totalSupply > 0n) {
-            // Burada daha detaylı holder analizi yapılabilir
-            // Şimdilik basit bir yaklaşım:
             totalHolders++;
           }
         } catch (e) {
@@ -140,7 +156,7 @@ export default function ProfilePage() {
       }
       
       // Top holders (örnek olarak ilk 5)
-      const topHolders = [
+      const topHolders: TopHolder[] = [
         { address: "0x123...abc", percentage: 15.2 },
         { address: "0x456...def", percentage: 12.8 },
         { address: "0x789...ghi", percentage: 9.5 },
@@ -158,16 +174,16 @@ export default function ProfilePage() {
       let totalTokens = 0;
       let activeCurves = 0;
       
-      for (const tokenAddr of (allTokens as string[])) {
+      for (const tokenAddr of allTokens) {
         try {
           const salesData = await publicClient.readContract({
-            address: CONTRACT_ADDRESS,
+            address: CONTRACT_ADDRESS as `0x${string}`,
             abi: CONTRACT_ABI,
             functionName: "sales",
             args: [tokenAddr as `0x${string}`]
-          });
+          }) as any;
           
-          if (salesData && salesData[1]) { // virtualMaticReserves
+          if (salesData && salesData[1]) {
             const maticReserves = parseFloat(formatEther(salesData[1] as bigint));
             const tokenReserves = salesData[2] ? parseFloat(formatEther(salesData[2] as bigint)) : 0;
             
@@ -191,7 +207,7 @@ export default function ProfilePage() {
     } catch (error) {
       console.error("❌ Contract data fetch error:", error);
     }
-  };
+  }, [publicClient, address, allTokens]);
 
   useEffect(() => {
     // 1. ADIM: KAYITLI İSMİ ÇEK
@@ -201,20 +217,20 @@ export default function ProfilePage() {
     }
 
     const fetchData = async () => {
-      if (!allTokens || !address || !publicClient) return;
+      if (!allTokens || !address || !publicClient || !Array.isArray(allTokens)) return;
       setLoading(true);
 
-      const held: any[] = [];
-      const favs: any[] = [];
-      const localFavs = JSON.parse(localStorage.getItem("favorites") || "[]");
+      const held: TokenData[] = [];
+      const favs: TokenData[] = [];
+      const localFavs: string[] = JSON.parse(localStorage.getItem("favorites") || "[]");
 
-      for (const tokenAddr of (allTokens as string[])) {
+      for (const tokenAddr of allTokens) {
         try {
           const balance = await publicClient.readContract({ 
             address: tokenAddr as `0x${string}`, 
             abi: erc20Abi, 
             functionName: "balanceOf", 
-            args: [address] 
+            args: [address as `0x${string}`] 
           });
           
           if (balance > 0n || localFavs.includes(tokenAddr)) {
@@ -230,18 +246,18 @@ export default function ProfilePage() {
                 functionName: "symbol" 
               }),
               publicClient.readContract({ 
-                address: CONTRACT_ADDRESS, 
+                address: CONTRACT_ADDRESS as `0x${string}`, 
                 abi: CONTRACT_ABI, 
                 functionName: "sales", 
                 args: [tokenAddr as `0x${string}`] 
               })
-            ]);
+            ]) as [string, string, any];
 
-            const tokenData = {
+            const tokenData: TokenData = {
               address: tokenAddr,
               name,
               symbol,
-              balance: formatEther(balance),
+              balance: formatEther(balance as bigint),
               isFav: localFavs.includes(tokenAddr),
               collateral: salesData ? formatEther(salesData[1] as bigint) : "0",
               tokenReserves: salesData && salesData[2] ? formatEther(salesData[2] as bigint) : "0"
@@ -258,7 +274,7 @@ export default function ProfilePage() {
       setFavTokens(favs);
 
       // 2. ADIM: LEVEL VE XP HESAPLA
-      const currentXP = (held.length * 150) + (favs.length * 50); // Token başı 150, Fav başı 50 XP
+      const currentXP = (held.length * 150) + (favs.length * 50);
       setXp(currentXP);
       
       const calcLevel = Math.floor(currentXP / 300) + 1; 
@@ -271,7 +287,7 @@ export default function ProfilePage() {
       else if (calcLevel >= 2) setRankTitle("Diamond Hands 💎");
       else setRankTitle("Novice Trader 👶");
 
-      // 4. ADIM: Kontrat verilerini çek (Traders, Holders, Bonding Curve)
+      // 4. ADIM: Kontrat verilerini çek
       await fetchContractData();
 
       setLoading(false);
@@ -284,7 +300,7 @@ export default function ProfilePage() {
       const interval = setInterval(fetchContractData, 30000);
       return () => clearInterval(interval);
     }
-  }, [allTokens, address, isConnected, publicClient]);
+  }, [allTokens, address, isConnected, publicClient, fetchContractData]);
 
   // 5. ADIM: İSİM KAYDETME FONKSİYONU
   const saveNickname = () => {
@@ -294,6 +310,15 @@ export default function ProfilePage() {
       setIsEditing(false);
       toast.success("Nickname Updated!");
   };
+
+  const handleCopyAddress = () => {
+    if (address) {
+      navigator.clipboard.writeText(address);
+      toast.success("Copied!");
+    }
+  };
+
+  const totalValue = heldTokens.reduce((sum, t) => sum + parseFloat(t.collateral) * 3200, 0);
 
   if (!isConnected) return (
     <div style={{ backgroundColor: '#0a0e27', color: '#fff', minHeight: '100vh', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', position: 'relative', overflow: 'hidden', backgroundImage: 'radial-gradient(circle at 50% 0%, #1e1b4b 0%, #0a0e27 60%)' }}>
@@ -311,8 +336,6 @@ export default function ProfilePage() {
       </div>
     </div>
   );
-
-  const totalValue = heldTokens.reduce((sum, t) => sum + parseFloat(t.collateral) * 3200, 0);
 
   return (
     <div style={{ backgroundColor: '#0a0e27', color: '#fff', minHeight: '100vh', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', position: 'relative', overflow: 'hidden', backgroundImage: 'radial-gradient(circle at 50% 0%, #1e1b4b 0%, #0a0e27 60%)' }}>
@@ -354,7 +377,25 @@ export default function ProfilePage() {
                 <div style={{ marginBottom: '8px' }}>
                    {isEditing ? (
                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                           <input type="text" value={editInput} onChange={(e) => setEditInput(e.target.value)} placeholder="Enter Name..." style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid #FDDC11', borderRadius: '8px', padding: '4px 12px', fontSize: '20px', fontWeight: 'bold', color: '#fff', outline: 'none' }} autoFocus />
+                           <input 
+                             type="text" 
+                             value={editInput} 
+                             onChange={(e) => setEditInput(e.target.value)} 
+                             placeholder="Enter Name..." 
+                             style={{ 
+                               background: 'rgba(0,0,0,0.3)', 
+                               border: '1px solid #FDDC11', 
+                               borderRadius: '8px', 
+                               padding: '4px 12px', 
+                               fontSize: '20px', 
+                               fontWeight: 'bold', 
+                               color: '#fff', 
+                               outline: 'none',
+                               width: '100%',
+                               maxWidth: '300px'
+                             }} 
+                             autoFocus 
+                           />
                            <button onClick={saveNickname} style={{ padding: '6px', background: '#22c55e', borderRadius: '8px', border: 'none', cursor: 'pointer' }}><Check size={16} color="white"/></button>
                            <button onClick={() => setIsEditing(false)} style={{ padding: '6px', background: '#ef4444', borderRadius: '8px', border: 'none', cursor: 'pointer' }}><X size={16} color="white"/></button>
                        </div>
@@ -363,7 +404,7 @@ export default function ProfilePage() {
                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                                <h1 style={{ fontSize: '32px', fontWeight: '900', margin: 0, color: '#fff' }}>{nickname || rankTitle}</h1>
                                <button onClick={() => { setIsEditing(true); setEditInput(nickname || rankTitle); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b' }}><Edit2 size={18} /></button>
-                               {level > 5 && <Shield size={24} className="text-green-400 fill-green-400/20" />}
+                               {level > 5 && <Shield size={24} style={{ color: '#10b981', fill: 'rgba(16, 185, 129, 0.2)' }} />}
                            </div>
                            {/* Rütbe Rozeti */}
                            {nickname && <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#FDDC11', backgroundColor: 'rgba(253, 220, 17, 0.1)', padding: '2px 8px', borderRadius: '4px', width: 'fit-content', marginTop: '4px' }}>{rankTitle}</span>}
@@ -372,7 +413,7 @@ export default function ProfilePage() {
                 </div>
 
                 {/* Cüzdan Adresi */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px', cursor: 'pointer' }} onClick={() => { navigator.clipboard.writeText(address || ''); toast.success("Copied!"); }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px', cursor: 'pointer' }} onClick={handleCopyAddress}>
                   <span style={{ fontSize: '14px', fontFamily: 'monospace', color: '#64748b' }}>{address?.slice(0, 6)}...{address?.slice(-4)}</span>
                   <Copy size={14} style={{ color: '#64748b' }} />
                 </div>
@@ -380,7 +421,7 @@ export default function ProfilePage() {
                 {/* XP BAR */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                     <div style={{ flex: 1, maxWidth: '300px', height: '8px', background: 'rgba(255,255,255,0.1)', borderRadius: '4px', overflow: 'hidden' }}>
-                       <div style={{ height: '100%', width: `${(xp % 300) / 3}%`, background: 'linear-gradient(90deg, #FDDC11, #fbbf24)', transition: 'width 0.5s ease-out' }} />
+                       <div style={{ height: '100%', width: `${Math.min((xp % 300) / 3, 100)}%`, background: 'linear-gradient(90deg, #FDDC11, #fbbf24)', transition: 'width 0.5s ease-out' }} />
                     </div>
                     <span style={{ fontSize: '12px', color: '#94a3b8', fontWeight: 'bold' }}>{xp} / {level * 300} XP</span>
                 </div>
@@ -506,7 +547,7 @@ export default function ProfilePage() {
           </motion.div>
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '20px' }}>
-            {(activeTab === "held" ? heldTokens : favTokens).map((token: any, idx) => (
+            {(activeTab === "held" ? heldTokens : favTokens).map((token: TokenData, idx) => (
               <Link href={`/trade/${token.address}`} key={token.address} style={{ textDecoration: 'none' }}>
                 <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: idx * 0.05 }} whileHover={{ y: -8, borderColor: 'rgba(253, 220, 17, 0.5)' }} style={{ borderRadius: '16px', border: '1px solid rgba(253, 220, 17, 0.15)', background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.4), rgba(15, 23, 42, 0.6))', backdropFilter: 'blur(10px)', padding: '20px', cursor: 'pointer', transition: 'all 0.3s', height: '100%', display: 'flex', flexDirection: 'column' }}>
                   
