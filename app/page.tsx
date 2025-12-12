@@ -1,19 +1,20 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Rocket, X, Coins, Twitter, Send, Globe, TrendingUp, Users, Activity, Crown, Flame, Upload, Search, Star, User as UserIcon, Zap, Play, Swords } from "lucide-react";
+import { Rocket, X, Coins, Twitter, Send, Globe, Search, User as UserIcon, Flame, Swords, Upload, Zap } from "lucide-react";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { useWriteContract, useWaitForTransactionReceipt, useReadContract, useWatchContractEvent, usePublicClient } from "wagmi"; 
-import { parseEther, formatEther } from "viem";
+import { parseEther, formatEther, erc20Abi } from "viem";
 import { CONTRACT_ADDRESS, CONTRACT_ABI } from "./contract";
 import toast, { Toaster } from 'react-hot-toast';
 
 const HIDDEN_TOKENS: string[] = [].map((t: string) => t.toLowerCase());
 
+// FIX 1: Resim Sunucusu Değiştirildi (Dyneui -> Dicebear)
 const getTokenImage = (address: string) => 
-  `https://api.dyneui.com/avatar/abstract?seed=${address}&size=400&background=000000&color=FDDC11&pattern=circuit&variance=0.7`;
+  `https://api.dicebear.com/7.x/identicon/svg?seed=${address}&backgroundColor=transparent`;
 
 const MediaRenderer = ({ src, className }: { src: string, className: string }) => {
     // HYDRATION FIX: Sadece client tarafında render et
@@ -24,7 +25,7 @@ const MediaRenderer = ({ src, className }: { src: string, className: string }) =
 
     const isVideo = src.includes(".mp4") || src.includes(".webm");
     if (isVideo) return <video src={src} className={className} autoPlay muted loop playsInline />;
-    return <img src={src} className={className} alt="token" />;
+    return <img src={src} className={className} alt="token" onError={(e) => { (e.target as HTMLImageElement).src = getTokenImage("default"); }} />;
 };
 
 // --- VERSUS BATTLE COMPONENT ---
@@ -86,10 +87,15 @@ function DarkTokenCard({ tokenAddress }: { tokenAddress: `0x${string}` }) {
   const { data: symbol } = useReadContract({ address: tokenAddress, abi: [{ name: "symbol", type: "function", inputs: [], outputs: [{ type: "string" }], stateMutability: "view" }], functionName: "symbol" });
   const { data: metadata } = useReadContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "tokenMetadata", args: [tokenAddress] });
 
-  const collateral = salesData ? formatEther(salesData[1] as bigint) : "0";
-  const tokensSold = salesData ? (salesData[3] as bigint) : 0n;
-  const progress = Number((tokensSold * 100n) / 1000000000000000000000000000n);
+  // FIX 2: BigInt Hesaplama Hatası Düzeltildi
+  // BigInt'leri önce string'e (formatEther), sonra sayıya (parseFloat) çevirip öyle işlem yapıyoruz.
+  const collateralStr = salesData ? formatEther(salesData[1] as bigint) : "0";
+  const tokensSoldStr = salesData ? formatEther(salesData[3] as bigint) : "0";
+  
+  // Güvenli Matematiksel İşlem
+  const progress = (parseFloat(tokensSoldStr) / 1_000_000_000) * 100;
   const realProgress = Math.min(progress, 100);
+  
   const image = metadata ? metadata[4] : "";
   const tokenImage = getTokenImage(tokenAddress);
 
@@ -156,7 +162,7 @@ function DarkTokenCard({ tokenAddress }: { tokenAddress: `0x${string}` }) {
           <div style={{ height: '8px', backgroundColor: 'rgba(255, 255, 255, 0.08)', borderRadius: '4px', overflow: 'hidden' }}><motion.div initial={{ width: 0 }} animate={{ width: `${realProgress}%` }} transition={{ duration: 1.2 }} style={{ height: '100%', background: 'linear-gradient(90deg, #FDDC11 0%, #9333ea 100%)', boxShadow: '0 0 20px rgba(253, 220, 17, 0.6)' }} /></div>
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#94a3b8' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: '600' }}><Coins size={14} style={{ color: '#FDDC11' }} /><span>{parseFloat(collateral).toFixed(2)} MATIC</span></div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: '600' }}><Coins size={14} style={{ color: '#FDDC11' }} /><span>{parseFloat(collateralStr).toFixed(2)} MATIC</span></div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: '600' }}><Users size={14} style={{ color: '#9333ea' }} /><span>Holders: {holders}</span></div>
         </div>
         <button onClick={handleQuickBuy} className="absolute bottom-4 right-4 z-20 flex items-center gap-1 bg-green-500/20 hover:bg-green-500 text-green-400 hover:text-white border border-green-500/50 px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all shadow-lg active:scale-95 group"><Zap size={10} className="fill-current" /> BUY 1 MATIC</button>
@@ -242,9 +248,8 @@ export default function HomePage() {
   return (
     <div style={{ backgroundColor: '#0a0e27', color: '#fff', minHeight: '100vh', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', position: 'relative', overflow: 'hidden' }}>
       <Toaster position="top-center" toastOptions={{ style: { background: '#1F2128', color: '#fff', border: '1px solid #333' } }} />
-      <div style={{ position: 'fixed', top: '-20%', right: '-10%', width: '600px', height: '600px', background: 'radial-gradient(circle, rgba(253,220,17,0.12) 0%, transparent 70%)', filter: 'blur(80px)', zIndex: 0, animation: 'float 8s ease-in-out infinite' }} />
-      <div style={{ position: 'fixed', bottom: '-20%', left: '-10%', width: '600px', height: '600px', background: 'radial-gradient(circle, rgba(147,51,234,0.12) 0%, transparent 70%)', filter: 'blur(80px)', zIndex: 0, animation: 'float 10s ease-in-out infinite reverse' }} />
-      <style>{`@keyframes float { 0%, 100% { transform: translateY(0px); } 50% { transform: translateY(20px); } }`}</style>
+      <div style={{ position: 'fixed', top: '-20%', right: '-10%', width: '600px', height: '600px', background: 'radial-gradient(circle, rgba(253,220,17,0.12) 0%, transparent 70%)', filter: 'blur(80px)', zIndex: 0 }} />
+      <div style={{ position: 'fixed', bottom: '-20%', left: '-10%', width: '600px', height: '600px', background: 'radial-gradient(circle, rgba(147,51,234,0.12) 0%, transparent 70%)', filter: 'blur(80px)', zIndex: 0 }} />
 
       <header style={{ position: 'sticky', top: 0, zIndex: 40, backgroundColor: 'rgba(10, 14, 39, 0.95)', backdropFilter: 'blur(20px)', borderBottom: '1px solid rgba(253, 220, 17, 0.1)' }}>
         <div style={{ maxWidth: '1280px', margin: '0 auto', padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
