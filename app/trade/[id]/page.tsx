@@ -19,12 +19,8 @@ import Confetti from 'react-confetti';
 
 // --- STYLES ---
 const styles = `
-  @keyframes shake { 0% { transform: translate(1px, 1px) rotate(0deg); } 10% { transform: translate(-1px, -2px) rotate(-1deg); } 20% { transform: translate(-3px, 0px) rotate(1deg); } 30% { transform: translate(3px, 2px) rotate(0deg); } 40% { transform: translate(1px, -1px) rotate(1deg); } 50% { transform: translate(-1px, 2px) rotate(-1deg); } 60% { transform: translate(-3px, 1px) rotate(0deg); } 70% { transform: translate(3px, 1px) rotate(-1deg); } 80% { transform: translate(-1px, -1px) rotate(1deg); } 90% { transform: translate(1px, 2px) rotate(0deg); } 100% { transform: translate(1px, -2px) rotate(-1deg); } }
-  .shake-screen { animation: shake 0.5s; animation-iteration-count: 1; }
   .matrix-mode { background-color: #000 !important; color: #00ff41 !important; font-family: 'Courier New', Courier, monospace; }
   .matrix-mode * { border-color: #00ff41 !important; }
-  .matrix-mode .text-white { color: #00ff41 !important; }
-  .matrix-mode .bg-white\\/5 { background-color: rgba(0, 255, 65, 0.1) !important; }
 `;
 
 // --- HELPERS ---
@@ -75,7 +71,7 @@ const PnLCard = ({ balance, price, symbol }: { balance: string, price: number, s
     );
 };
 
-const ChatBox = ({ tokenAddress, creator }: { tokenAddress: string, creator: string }) => {
+const ChatBox = ({ tokenAddress }: { tokenAddress: string }) => {
     const { address } = useAccount();
     const [msgs, setMsgs] = useState<any[]>([]);
     const [input, setInput] = useState("");
@@ -105,6 +101,7 @@ const ChatBox = ({ tokenAddress, creator }: { tokenAddress: string, creator: str
     return (
         <div className="flex flex-col h-[300px]">
             <div className="flex-1 overflow-y-auto space-y-2 mb-3 pr-2 scrollbar-thin scrollbar-thumb-white/10">
+                {msgs.length === 0 && <div className="text-center text-gray-500 text-xs mt-10">Start the conversation!</div>}
                 {msgs.map((m, i) => (<div key={i} className="p-2 rounded-lg bg-white/5 text-xs"><div className="flex justify-between mb-1"><span className="text-[#FDDC11] font-bold">{m.user}</span><span className="text-gray-500">{m.time}</span></div><p className="text-gray-300">{m.text}</p></div>))}
             </div>
             <div className="flex gap-2"><input type="text" value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==='Enter' && sendMsg()} className="flex-1 bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-[#FDDC11]" /><button onClick={sendMsg} className="bg-[#FDDC11] text-black p-2 rounded-lg"><Send size={14}/></button></div>
@@ -149,27 +146,15 @@ export default function TradePage({ params }: { params: { id: string } }) {
   const [showSettings, setShowSettings] = useState(false);
   const [isMatrixMode, setIsMatrixMode] = useState(false);
   const [isTvMode, setIsTvMode] = useState(false);
+  const [sniperMode, setSniperMode] = useState(false);
+  const [mevProtect, setMevProtect] = useState(false);
+  const [priceAlert, setPriceAlert] = useState("");
 
-  // DATA STORAGE (FAIL-SAFE)
+  // DATA STORAGE
   const [chartData, setChartData] = useState<any[]>([]);
   const [tradeHistory, setTradeHistory] = useState<any[]>([]);
-  const [myTrades, setMyTrades] = useState<any[]>([]); // SENİN İŞLEMLERİN (GARANTİ)
   const [holderList, setHolderList] = useState<any[]>([]);
   const processedTxHashes = useRef(new Set());
-
-  // INIT LOAD (LOCAL STORAGE RECOVERY)
-  useEffect(() => {
-      setIsMounted(true);
-      if(typeof window !== 'undefined') {
-          try {
-              const savedMyTrades = localStorage.getItem(`myTrades_${tokenAddress}`);
-              if(savedMyTrades) setMyTrades(JSON.parse(savedMyTrades));
-
-              const savedChart = localStorage.getItem(`chart_${tokenAddress}`);
-              if(savedChart) setChartData(JSON.parse(savedChart));
-          } catch(e) {}
-      }
-  }, [tokenAddress]);
 
   // READ CONTRACTS
   const { data: maticBalance } = useBalance({ address: address });
@@ -179,7 +164,6 @@ export default function TradePage({ params }: { params: { id: string } }) {
       address: tokenAddress, abi: erc20Abi, functionName: "allowance", args: [address as `0x${string}`, CONTRACT_ADDRESS], query: { enabled: !!address } 
   });
 
-  // IMPORTANT: Read sales data directly for INSTANT Price/MC update
   const { data: salesData, refetch: refetchSales } = useReadContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "sales", args: [tokenAddress], query: { refetchInterval: 3000 } });
   const { data: name } = useReadContract({ address: tokenAddress, abi: [{ name: "name", type: "function", inputs: [], outputs: [{ type: "string" }], stateMutability: "view" }], functionName: "name" });
   const { data: symbol } = useReadContract({ address: tokenAddress, abi: [{ name: "symbol", type: "function", inputs: [], outputs: [{ type: "string" }], stateMutability: "view" }], functionName: "symbol" });
@@ -195,7 +179,7 @@ export default function TradePage({ params }: { params: { id: string } }) {
   const creatorAddress = salesData ? salesData[0] : "";
 
   // ---------------------------------------------------------
-  // PRICE & STATS ENGINE (FAIL-SAFE)
+  // PRICE ENGINE: STATE BASED (NO HISTORY REQUIRED)
   // ---------------------------------------------------------
   const collateralStr = salesData ? formatEther(salesData[1] as bigint) : "0";
   const tokensSoldStr = salesData ? formatEther(salesData[3] as bigint) : "0";
@@ -205,10 +189,21 @@ export default function TradePage({ params }: { params: { id: string } }) {
   const progress = (tokensSoldVal / 1_000_000_000) * 100;
   const realProgress = Math.min(progress, 100);
   
-  // Fiyat Hesaplama
+  // Calculate price directly from contract state
   const estimatedPrice = tokensSoldVal > 0 ? collateralVal / tokensSoldVal : 0.00000003;
-  const finalPrice = estimatedPrice;
-  const marketCap = finalPrice * 1_000_000_000;
+  const currentPrice = estimatedPrice;
+  const marketCap = currentPrice * 1_000_000_000;
+
+  // ENSURE CHART HAS DATA (MOCK IF EMPTY)
+  useEffect(() => {
+      if (chartData.length === 0) {
+          // If no history, show Start -> Current Price line
+          setChartData([
+              { name: "Start", price: 0.00000003, fill: '#10b981' },
+              { name: "Now", price: currentPrice, fill: '#10b981' }
+          ]);
+      }
+  }, [currentPrice]);
 
   const needsApproval = activeTab === "sell" && (!allowance || (amount && parseFloat(amount) > parseFloat(formatEther(allowance as bigint))));
 
@@ -247,25 +242,19 @@ export default function TradePage({ params }: { params: { id: string } }) {
   // --- MANUAL UI UPDATE (OPTIMISTIC) ---
   const updateLocalData = (type: "BUY" | "SELL" | "BURN", amt: string, price: number) => {
       const newTrade = {
-          user: address,
+          user: address || "You",
           type: type,
           maticAmount: (parseFloat(amt) * price).toFixed(4),
           tokenAmount: amt,
           price: price.toFixed(8),
-          time: new Date().toLocaleTimeString()
+          time: "Just now"
       };
       
-      const updatedMyTrades = [newTrade, ...myTrades];
-      const updatedChart = [...chartData, { name: "Now", price: price, fill: type === 'BUY' ? '#10b981' : '#ef4444' }];
-
-      setMyTrades(updatedMyTrades);
-      setChartData(updatedChart);
-      
-      localStorage.setItem(`myTrades_${tokenAddress}`, JSON.stringify(updatedMyTrades));
-      localStorage.setItem(`chart_${tokenAddress}`, JSON.stringify(updatedChart));
+      setTradeHistory(prev => [newTrade, ...prev]);
+      setChartData(prev => [...prev, { name: "Now", price: price, fill: type === 'BUY' ? '#10b981' : '#ef4444' }]);
   };
 
-  // DATA ENGINE (History Fetch)
+  // DATA ENGINE (History Fetch - Safe)
   const fetchDataEngine = async () => {
     if (!publicClient) return;
     try {
@@ -282,28 +271,13 @@ export default function TradePage({ params }: { params: { id: string } }) {
       const relevantSells = sellLogs.filter((l: any) => l.args.token.toLowerCase() === targetToken);
 
       const allEvents = [...relevantBuys.map(l => ({...l, type: "BUY"})), ...relevantSells.map(l => ({...l, type: "SELL"}))]
-        .sort((a, b) => Number(a.blockNumber) - Number(b.blockNumber) || a.logIndex - b.logIndex);
+        .sort((a, b) => Number(a.blockNumber) - Number(b.blockNumber));
+
+      if (allEvents.length === 0) return; // Veri yoksa State'i bozma
 
       const newTrades: any[] = [];
       const newChart: any[] = [];
-      let lastP = 0.0000001;
-
-      // HOLDERS
-      const balances: Record<string, bigint> = {};
-      // Eğer kendi bakiyemiz varsa listeye manuel ekle (Garantili Holder)
-      if(address && userTokenBalance && userTokenBalance > 0n) {
-          balances[address] = userTokenBalance as bigint;
-      }
-      
-      relevantBuys.forEach((l:any) => { const amt = l.args.amountTokens ? BigInt(l.args.amountTokens) : 0n; balances[l.args.buyer] = (balances[l.args.buyer] || 0n) + amt; });
-      relevantSells.forEach((l:any) => { const amt = l.args.amountTokens ? BigInt(l.args.amountTokens) : 0n; balances[l.args.seller] = (balances[l.args.seller] || 0n) - amt; });
-      
-      const sortedHolders = Object.entries(balances)
-          .filter(([_, bal]) => bal > 100n) 
-          .sort(([, a], [, b]) => (b > a ? 1 : -1))
-          .map(([addr, bal]) => ({ address: addr, percentage: (Number(bal) * 100) / 1_000_000_000 / 10**18 }));
-      
-      setHolderList(sortedHolders);
+      let lastP = 0.00000003;
 
       allEvents.forEach((event: any) => {
         const mVal = parseFloat(formatEther(event.args.amountMATIC || 0n));
@@ -330,47 +304,38 @@ export default function TradePage({ params }: { params: { id: string } }) {
       if (newChart.length > 0) setChartData(newChart);
       if (newTrades.length > 0) setTradeHistory(newTrades);
 
-    } catch (e) { console.error("Fetch error:", e); }
+    } catch (e) {}
   };
 
   useEffect(() => { 
       setIsMounted(true); 
       fetchDataEngine(); 
-      const interval = setInterval(fetchDataEngine, 10000); 
+      const interval = setInterval(fetchDataEngine, 5000); 
       return () => clearInterval(interval); 
   }, [tokenAddress, publicClient, userTokenBalance]); 
 
-  // CONFIRMATION LISTENER
+  // CONFIRMATION HANDLER
   const { data: hash, isPending, writeContract: _wc } = useWriteContract();
   const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({ hash });
 
   useEffect(() => { 
       if (isConfirmed) { 
-          // CLEAN TOASTS & FORCE UPDATE
           toast.dismiss(); 
           toast.success("Transaction Confirmed!");
-          
-          if(isApproving) { 
-              setIsApproving(false); 
-              refetchAllowance(); 
-          } else { 
+          if(isApproving) { setIsApproving(false); refetchAllowance(); }
+          else { 
              if(activeTab === "buy") setShowConfetti(true);
              setAmount(""); 
              refetchSales(); 
              refetchTokenBalance(); 
-             
-             // INSTANT UPDATE
-             updateLocalData(activeTab === "buy" ? "BUY" : "SELL", amount, finalPrice);
+             updateLocalData(activeTab === "buy" ? "BUY" : "SELL", amount, currentPrice);
           }
       } 
   }, [isConfirmed]);
   
-  // FORCE DISMISS LOADING TOAST AFTER 15 SECONDS (Safety Valve)
+  // Force dismiss loading after 10s
   useEffect(() => {
-      if(isPending || isConfirming) {
-          const timer = setTimeout(() => { toast.dismiss(); }, 15000);
-          return () => clearTimeout(timer);
-      }
+      if(isPending || isConfirming) { const timer = setTimeout(() => { toast.dismiss(); }, 10000); return () => clearTimeout(timer); }
   }, [isPending, isConfirming]);
 
   const handlePercentage = (percent: number) => {
@@ -389,9 +354,6 @@ export default function TradePage({ params }: { params: { id: string } }) {
   const copyReferral = () => { navigator.clipboard.writeText(`${window.location.origin}/trade/${tokenAddress}`); toast.success("Copied!"); };
 
   if (!isMounted) return <div className="min-h-screen bg-[#0a0e27] flex items-center justify-center text-[#FDDC11] font-mono animate-pulse">Loading Trade...</div>;
-
-  // DISPLAY LOGIC: Merge RPC History + My Local Trades
-  const displayTrades = [...myTrades, ...tradeHistory].slice(0, 50);
 
   return (
     <div className={`min-h-screen font-sans bg-[#0a0e27] text-white selection:bg-[#FDDC11] selection:text-black`}>
@@ -431,9 +393,8 @@ export default function TradePage({ params }: { params: { id: string } }) {
 
             <div className="border border-white/10 rounded-2xl p-5 h-[450px] bg-[#2d1b4e]/50 relative group">
                 <div className="absolute top-4 right-4 z-10"><button onClick={fetchDataEngine} className="p-2 bg-white/5 rounded-lg hover:bg-white/10"><RefreshCw size={14} /></button></div>
-                <div className="flex justify-between items-center mb-4"><div className="flex gap-4"><div className="text-lg font-bold">{finalPrice.toFixed(9)} MATIC</div><div className="text-lg font-bold text-[#FDDC11]">MC: {(marketCap).toLocaleString()} MATIC</div></div></div>
+                <div className="flex justify-between items-center mb-4"><div className="flex gap-4"><div className="text-lg font-bold">{currentPrice.toFixed(9)} MATIC</div><div className="text-lg font-bold text-[#FDDC11]">MC: {(marketCap).toLocaleString()} MATIC</div></div></div>
                 <ResponsiveContainer width="100%" height="90%"><ComposedChart data={chartData}><YAxis domain={['auto', 'auto']} hide /><Tooltip contentStyle={{ backgroundColor: '#181a20', border: '1px solid #333' }} /><Bar dataKey="price" shape={<CustomCandle />} isAnimationActive={false}>{chartData.map((e, i) => (<Cell key={i} fill={e.fill} />))}</Bar></ComposedChart></ResponsiveContainer>
-                {chartData.length === 0 && <div className="absolute inset-0 flex items-center justify-center text-gray-600 text-sm">No trades yet. Chart waiting...</div>}
             </div>
 
             <div className="flex flex-col gap-4">
@@ -442,7 +403,7 @@ export default function TradePage({ params }: { params: { id: string } }) {
                     {bottomTab === "trades" && (
                         <div className="flex flex-col gap-1">
                             <div className="grid grid-cols-5 text-[10px] font-bold text-gray-500 uppercase px-3 pb-2"><div>User</div><div>Type</div><div>MATIC</div><div>Tokens</div><div className="text-right">Price</div></div>
-                            {displayTrades.map((trade, i) => (
+                            {tradeHistory.map((trade, i) => (
                                 <div key={i} className="grid grid-cols-5 text-xs py-3 px-3 rounded-lg border-b border-white/5 hover:bg-white/5 transition-colors">
                                     <div className="font-mono text-gray-400">{generateNickname(trade.user)}</div>
                                     <div className={trade.type==="BUY"?"text-green-500 font-bold":"text-red-500 font-bold"}>{trade.type}</div>
@@ -451,7 +412,7 @@ export default function TradePage({ params }: { params: { id: string } }) {
                                     <div className="text-right text-gray-500">{trade.price}</div>
                                 </div>
                             ))}
-                            {displayTrades.length === 0 && <div className="text-center text-gray-500 py-10">No trades yet.</div>}
+                            {tradeHistory.length === 0 && <div className="text-center text-gray-500 py-10">No trades yet.</div>}
                         </div>
                     )}
                     {bottomTab === "chat" && <ChatBox tokenAddress={tokenAddress} creator={creatorAddress} />}
@@ -464,7 +425,7 @@ export default function TradePage({ params }: { params: { id: string } }) {
 
         {/* RIGHT COLUMN: TRADE */}
         <div className="lg:col-span-4 space-y-6">
-            {userTokenBalance ? userTokenBalance > 0n && <PnLCard balance={formatEther(userTokenBalance)} price={finalPrice} symbol={symbol?.toString() || "TKN"} /> : null}
+            {userTokenBalance ? userTokenBalance > 0n && <PnLCard balance={formatEther(userTokenBalance)} price={currentPrice} symbol={symbol?.toString() || "TKN"} /> : null}
             
             <div className="border border-white/10 rounded-2xl p-5 sticky top-24 bg-[#2d1b4e]">
                 <div className="grid grid-cols-2 gap-3 mb-6">
