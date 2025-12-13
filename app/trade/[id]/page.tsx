@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { useParams } from "next/navigation";
 import { 
   ArrowLeft, Twitter, Globe, Send, Copy, TrendingUp, MessageSquare, 
   User, ExternalLink, Coins, Users, Settings, Share2, Star, 
@@ -52,7 +51,7 @@ const formatTokenAmount = (num: number) => {
     return num.toFixed(2); 
 };
 
-// --- CHART COMPONENT (DEFINED HERE) ---
+// --- CHART COMPONENT ---
 const CustomCandle = (props: any) => { 
     const { x, y, width, height, fill } = props; 
     return <rect x={x} y={y} width={width} height={Math.max(height, 2)} fill={fill} rx={2} />; 
@@ -86,7 +85,7 @@ const ChatBox = ({ tokenAddress, creator }: { tokenAddress: string, creator: str
         setIsClient(true);
         if (typeof window !== 'undefined') {
             try {
-                const saved = localStorage.getItem(`chat_${tokenAddress.toLowerCase()}`); 
+                const saved = localStorage.getItem(`chat_${tokenAddress}`); 
                 if(saved) setMsgs(JSON.parse(saved)); 
             } catch(e) {}
         }
@@ -97,7 +96,7 @@ const ChatBox = ({ tokenAddress, creator }: { tokenAddress: string, creator: str
         const newMsg = { user: generateNickname(address || "0x00"), text: input, time: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) }; 
         const updated = [...msgs, newMsg]; 
         setMsgs(updated); 
-        localStorage.setItem(`chat_${tokenAddress.toLowerCase()}`, JSON.stringify(updated)); 
+        localStorage.setItem(`chat_${tokenAddress}`, JSON.stringify(updated)); 
         setInput(""); 
     };
 
@@ -134,12 +133,8 @@ const MemeGenerator = ({ tokenImage, symbol }: { tokenImage: string, symbol: str
 };
 
 // --- MAIN PAGE ---
-export default function TradePage() {
-  const params = useParams();
-  const id = params?.id as string;
-  // Fallback to avoid crash if ID is missing
-  const tokenAddress = id ? (id as `0x${string}`) : "0x0000000000000000000000000000000000000000";
-
+export default function TradePage({ params }: { params: { id: string } }) {
+  const tokenAddress = params.id as `0x${string}`;
   const publicClient = usePublicClient(); 
   const { isConnected, address } = useAccount();
   const [isMounted, setIsMounted] = useState(false);
@@ -154,41 +149,46 @@ export default function TradePage() {
   const [showSettings, setShowSettings] = useState(false);
   const [isMatrixMode, setIsMatrixMode] = useState(false);
   const [isTvMode, setIsTvMode] = useState(false);
+  const [sniperMode, setSniperMode] = useState(false);
+  const [mevProtect, setMevProtect] = useState(false);
+  const [priceAlert, setPriceAlert] = useState("");
 
-  // DATA STORAGE
+  // DATA - CLIENT SIDE FIRST
   const [chartData, setChartData] = useState<any[]>([]);
   const [tradeHistory, setTradeHistory] = useState<any[]>([]);
   const [holderList, setHolderList] = useState<any[]>([]);
   
-  // INIT LOAD (LOCAL STORAGE PERSISTENCE)
+  // INIT LOAD FROM LOCAL STORAGE (The "Memory" Fix)
   useEffect(() => {
       setIsMounted(true);
-      if(typeof window !== 'undefined' && id) {
+      if(typeof window !== 'undefined') {
           try {
-              const key = id.toLowerCase();
-              const savedTrades = localStorage.getItem(`trades_v3_${key}`);
+              const savedTrades = localStorage.getItem(`trades_v2_${tokenAddress}`);
               if(savedTrades) setTradeHistory(JSON.parse(savedTrades));
               
-              const savedChart = localStorage.getItem(`chart_v3_${key}`);
+              const savedChart = localStorage.getItem(`chart_v2_${tokenAddress}`);
               if(savedChart) setChartData(JSON.parse(savedChart));
+
+              const savedHolders = localStorage.getItem(`holders_v2_${tokenAddress}`);
+              if(savedHolders) setHolderList(JSON.parse(savedHolders));
           } catch(e) {}
       }
-  }, [id]);
+  }, [tokenAddress]);
 
-  // READ CONTRACTS
+  // CONTRACT READS
   const { data: maticBalance } = useBalance({ address: address });
-  const { data: userTokenBalance, refetch: refetchTokenBalance } = useReadContract({ address: tokenAddress, abi: erc20Abi, functionName: "balanceOf", args: [address as `0x${string}`], query: { enabled: !!address, refetchInterval: 2000 } });
+  const { data: userTokenBalance, refetch: refetchTokenBalance } = useReadContract({ address: tokenAddress, abi: erc20Abi, functionName: "balanceOf", args: [address as `0x${string}`], query: { enabled: !!address, refetchInterval: 1000 } });
   
   const { data: allowance, refetch: refetchAllowance } = useReadContract({ 
-      address: tokenAddress, abi: erc20Abi, functionName: "allowance", args: [address as `0x${string}`, CONTRACT_ADDRESS], query: { enabled: !!address } 
+      address: tokenAddress, abi: erc20Abi, functionName: "allowance", args: [address as `0x${string}`, CONTRACT_ADDRESS], query: { enabled: !!address, refetchInterval: 1000 } 
   });
 
-  const { data: salesData, refetch: refetchSales } = useReadContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "sales", args: [tokenAddress], query: { refetchInterval: 3000 } });
+  // REAL-TIME CONTRACT STATE
+  const { data: salesData, refetch: refetchSales } = useReadContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "sales", args: [tokenAddress], query: { refetchInterval: 1000 } });
   const { data: name } = useReadContract({ address: tokenAddress, abi: [{ name: "name", type: "function", inputs: [], outputs: [{ type: "string" }], stateMutability: "view" }], functionName: "name" });
   const { data: symbol } = useReadContract({ address: tokenAddress, abi: [{ name: "symbol", type: "function", inputs: [], outputs: [{ type: "string" }], stateMutability: "view" }], functionName: "symbol" });
   const { data: metadata } = useReadContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "tokenMetadata", args: [tokenAddress] });
 
-  // DEFINED VARIABLES (CRITICAL FIX FOR REFERENCE ERRORS)
   const image = metadata ? metadata[4] : "";
   const desc = metadata ? metadata[5] : "";
   const twitter = metadata ? metadata[6] : "";
@@ -197,62 +197,28 @@ export default function TradePage() {
   const tokenImage = getTokenImage(tokenAddress);
   const creatorAddress = salesData ? salesData[0] : "";
 
-  // STATS
+  // ---------------------------------------------------------
+  // PRICE & MC ENGINE (REAL-TIME)
+  // ---------------------------------------------------------
   const collateralStr = salesData ? formatEther(salesData[1] as bigint) : "0";
   const tokensSoldStr = salesData ? formatEther(salesData[3] as bigint) : "0";
   const collateralVal = parseFloat(collateralStr);
   const tokensSoldVal = parseFloat(tokensSoldStr);
 
-  const progress = (tokensSoldVal / 1_000_000_000) * 100;
+  const progress = (tokensSoldVal / 800_000_000) * 100; // 800M Sale Goal
   const realProgress = Math.min(progress, 100);
   
-  const estimatedPrice = tokensSoldVal > 0 ? collateralVal / tokensSoldVal : 0.00000003;
-  const currentPrice = chartData.length > 0 ? chartData[chartData.length - 1].price : estimatedPrice;
+  // Real Price Calculation: (Collateral / Tokens Sold) * Multiplier for Visualization
+  // If no sales, use a base price
+  const basePrice = 0.00000003;
+  const currentPrice = tokensSoldVal > 0 ? (collateralVal / tokensSoldVal) : basePrice;
   const marketCap = currentPrice * 1_000_000_000;
-
-  // CHART INITIALIZATION IF EMPTY
-  useEffect(() => {
-      if (chartData.length === 0 && estimatedPrice > 0) {
-          setChartData([{ name: "Start", price: 0.00000003, fill: '#10b981' }]);
-      }
-  }, [estimatedPrice]);
 
   const needsApproval = activeTab === "sell" && (!allowance || (amount && parseFloat(amount) > parseFloat(formatEther(allowance as bigint))));
 
-  // ACTIONS
-  const { writeContract } = useWriteContract();
-  const { sendTransaction } = useSendTransaction();
-  
-  const handleApprove = async () => {
-      try {
-          setIsApproving(true);
-          writeContract({ address: tokenAddress, abi: erc20Abi, functionName: "approve", args: [CONTRACT_ADDRESS, maxUint256] });
-          toast.loading("Approving...", { id: 'approve-tx' });
-      } catch(e) { toast.error("Failed"); setIsApproving(false); }
-  };
-
-  const handleTx = (type: "buy" | "sell" | "burn") => {
-    if (!amount) { toast.error("Enter amount"); return; }
-    try {
-        const val = parseEther(amount);
-        if (type === "burn") {
-            writeContract({ address: tokenAddress, abi: erc20Abi, functionName: "transfer", args: ["0x000000000000000000000000000000000000dEaD", val], gas: BigInt(200000) });
-            toast.loading("Burning...", { id: 'tx' });
-            return;
-        }
-        if (type === "buy") {
-             writeContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "buy", args: [tokenAddress], value: val, gas: BigInt(500000) });
-             toast.loading("Buying...", { id: 'tx' });
-        } else if (type === "sell") {
-             if(needsApproval) { toast.error("Approve first!"); return; }
-             writeContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "sell", args: [tokenAddress, val], gas: BigInt(500000) });
-             toast.loading("Selling...", { id: 'tx' });
-        }
-    } catch(e) { toast.error("Transaction failed"); toast.dismiss('tx'); }
-  };
-
-  // --- MANUAL UI UPDATE ---
-  const updateLocalData = (type: "BUY" | "SELL" | "BURN", amt: string, price: number) => {
+  // --- MANUAL UI UPDATE SYSTEM (The "Aggressive" Fix) ---
+  const forceUpdateUI = (type: "BUY" | "SELL" | "BURN", amt: string, price: number) => {
+      // 1. Add to Trade History
       const newTrade = {
           user: address || "You",
           type: type,
@@ -263,106 +229,89 @@ export default function TradePage() {
       };
       
       const updatedHistory = [newTrade, ...tradeHistory];
-      const updatedChart = [...chartData, { name: "Now", price: price, fill: type === 'BUY' ? '#10b981' : '#ef4444' }];
-
       setTradeHistory(updatedHistory);
+      localStorage.setItem(`trades_v2_${tokenAddress}`, JSON.stringify(updatedHistory));
+
+      // 2. Add to Chart
+      const updatedChart = [...chartData, { name: "Now", price: price, fill: type === 'BUY' ? '#10b981' : '#ef4444' }];
       setChartData(updatedChart);
-      
-      const key = tokenAddress.toLowerCase();
-      localStorage.setItem(`trades_v3_${key}`, JSON.stringify(updatedHistory));
-      localStorage.setItem(`chart_v3_${key}`, JSON.stringify(updatedChart));
+      localStorage.setItem(`chart_v2_${tokenAddress}`, JSON.stringify(updatedChart));
+
+      // 3. Update Holders (If buying)
+      if (type === "BUY" && address) {
+          const newHolder = { address: address, percentage: 0 }; // Will refresh with real data later
+          const filtered = holderList.filter(h => h.address !== address);
+          const updatedHolders = [newHolder, ...filtered];
+          setHolderList(updatedHolders);
+          localStorage.setItem(`holders_v2_${tokenAddress}`, JSON.stringify(updatedHolders));
+      }
   };
 
-  // DATA ENGINE
-  const fetchDataEngine = async () => {
-    if (!publicClient) return;
-    try {
-      const blockNumber = await publicClient.getBlockNumber();
-      const fromBlock = blockNumber - 990n; 
-
-      const [buyLogs, sellLogs] = await Promise.all([
-        publicClient.getContractEvents({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, eventName: 'Buy', fromBlock }),
-        publicClient.getContractEvents({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, eventName: 'Sell', fromBlock })
-      ]);
-      
-      const targetToken = tokenAddress.toLowerCase();
-      const relevantBuys = buyLogs.filter((l: any) => l.args.token.toLowerCase() === targetToken);
-      const relevantSells = sellLogs.filter((l: any) => l.args.token.toLowerCase() === targetToken);
-
-      const allEvents = [...relevantBuys.map(l => ({...l, type: "BUY"})), ...relevantSells.map(l => ({...l, type: "SELL"}))]
-        .sort((a, b) => Number(a.blockNumber) - Number(b.blockNumber));
-
-      if (allEvents.length === 0) return; // Don't overwrite if RPC is slow
-
-      const newTrades: any[] = [];
-      const newChart: any[] = [];
-      let lastP = 0.00000003;
-
-      allEvents.forEach((event: any) => {
-        const mVal = parseFloat(formatEther(event.args.amountMATIC || 0n));
-        const tVal = parseFloat(formatEther(event.args.amountTokens || 0n));
-        let price = tVal > 0 ? mVal / tVal : lastP;
-        
-        newTrades.unshift({ 
-            user: event.args.buyer || event.args.seller, 
-            type: event.type, 
-            maticAmount: mVal.toFixed(4), 
-            tokenAmount: tVal.toFixed(2), 
-            price: price.toFixed(8) 
-        });
-
-        newChart.push({ 
-            name: event.blockNumber.toString(), 
-            price: price, 
-            fill: event.type === 'BUY' ? '#10b981' : '#ef4444' 
-        });
-        lastP = price;
-      });
-
-      if (newChart.length > 0) setChartData(newChart);
-      if (newTrades.length > 0) setTradeHistory(newTrades);
-
-    } catch (e) {}
-  };
-
-  useEffect(() => { 
-      setIsMounted(true); 
-      fetchDataEngine(); 
-      const interval = setInterval(fetchDataEngine, 10000); 
-      return () => clearInterval(interval); 
-  }, [tokenAddress, publicClient, userTokenBalance]); 
-
-  // CONFIRMATION HANDLER
-  const { data: hash, isPending, writeContract: _wc } = useWriteContract();
+  // ACTIONS
+  const { data: hash, isPending, writeContract } = useWriteContract();
   const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({ hash });
 
+  const handleApprove = () => {
+      writeContract({ address: tokenAddress, abi: erc20Abi, functionName: "approve", args: [CONTRACT_ADDRESS, maxUint256] });
+      toast.loading("Approving...", { id: 'tx' });
+  };
+
+  const handleTx = (type: "buy" | "sell" | "burn") => {
+    if (!amount) { toast.error("Enter amount"); return; }
+    const val = parseEther(amount);
+    
+    if (type === "burn") {
+        writeContract({ address: tokenAddress, abi: erc20Abi, functionName: "transfer", args: ["0x000000000000000000000000000000000000dEaD", val] });
+    } else if (type === "buy") {
+         writeContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "buy", args: [tokenAddress], value: val });
+    } else if (type === "sell") {
+         if(needsApproval) { toast.error("Approve first!"); return; }
+         writeContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "sell", args: [tokenAddress, val] });
+    }
+    toast.loading(type === "buy" ? "Buying..." : type === "sell" ? "Selling..." : "Burning...", { id: 'tx' });
+  };
+
+  // CONFIRMATION LISTENER
   useEffect(() => { 
       if (isConfirmed) { 
-          toast.dismiss(); 
+          toast.dismiss(); // KESİN KAPAT
           toast.success("Transaction Confirmed!");
-          if(isApproving) { setIsApproving(false); refetchAllowance(); }
-          else { 
+          
+          if(isApproving) { 
+              setIsApproving(false); 
+              refetchAllowance(); 
+          } else { 
              if(activeTab === "buy") setShowConfetti(true);
              setAmount(""); 
+             
+             // AGRESİF GÜNCELLEME
              refetchSales(); 
              refetchTokenBalance(); 
-             // INSTANT UPDATE
-             updateLocalData(activeTab === "buy" ? "BUY" : "SELL", amount, estimatedPrice);
+             
+             // RPC'yi beklemeden manuel ekle
+             forceUpdateUI(activeTab === "buy" ? "BUY" : "SELL", amount, currentPrice);
+             
+             // SAYFAYI ZORLA YENİLE (EN TEMİZ ÇÖZÜM)
+             setTimeout(() => window.location.reload(), 2000);
           }
-      } 
-      // Force dismiss loading
-      if(isPending || isConfirming) { const timer = setTimeout(() => toast.dismiss(), 15000); return () => clearTimeout(timer); }
+      }
+      
+      // Timeout to kill loading toast if stuck
+      if(isPending || isConfirming) {
+          const timer = setTimeout(() => toast.dismiss(), 15000);
+          return () => clearTimeout(timer);
+      }
   }, [isConfirmed, isPending, isConfirming]);
 
   const handlePercentage = (percent: number) => {
     if(activeTab === "buy") {
         const bal = maticBalance ? parseFloat(maticBalance.formatted) : 0;
-        const safeBal = Math.max(0, bal - 0.2); 
+        const safeBal = Math.max(0, bal - 0.2); // Safe gas buffer
         setAmount((safeBal * (percent/100)).toFixed(4));
     } else {
         const bal = userTokenBalance ? parseFloat(formatEther(userTokenBalance as bigint)) : 0;
-        const safeFactor = percent === 100 ? 0.999 : (percent/100);
-        setAmount((bal * safeFactor).toFixed(4));
+        const safeFactor = percent === 100 ? 0.99 : (percent/100); // 99% to be safe
+        setAmount((bal * safeFactor).toFixed(2));
     }
   };
 
@@ -408,7 +357,6 @@ export default function TradePage() {
             </div>
 
             <div className="border border-white/10 rounded-2xl p-5 h-[450px] bg-[#2d1b4e]/50 relative group">
-                <div className="absolute top-4 right-4 z-10"><button onClick={fetchDataEngine} className="p-2 bg-white/5 rounded-lg hover:bg-white/10"><RefreshCw size={14} /></button></div>
                 <div className="flex justify-between items-center mb-4"><div className="flex gap-4"><div className="text-lg font-bold">{currentPrice.toFixed(9)} MATIC</div><div className="text-lg font-bold text-[#FDDC11]">MC: {(marketCap).toLocaleString()} MATIC</div></div></div>
                 <ResponsiveContainer width="100%" height="90%"><ComposedChart data={chartData}><YAxis domain={['auto', 'auto']} hide /><Tooltip contentStyle={{ backgroundColor: '#181a20', border: '1px solid #333' }} /><Bar dataKey="price" shape={<CustomCandle />} isAnimationActive={false}>{chartData.map((e, i) => (<Cell key={i} fill={e.fill || '#10b981'} />))}</Bar></ComposedChart></ResponsiveContainer>
                 {chartData.length === 0 && <div className="absolute inset-0 flex items-center justify-center text-gray-600 text-sm">No trades yet. Chart waiting...</div>}
