@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import { useParams } from "next/navigation";
 import { 
   ArrowLeft, Twitter, Globe, Send, Copy, TrendingUp, MessageSquare, 
   User, ExternalLink, Coins, Users, Settings, Share2, Star, 
@@ -51,11 +52,10 @@ const formatTokenAmount = (num: number) => {
     return num.toFixed(2); 
 };
 
-// --- CHART COMPONENT (BU EKSİKTİ - EKLENDİ) ---
+// --- CHART COMPONENT ---
 const CustomCandle = (props: any) => { 
     const { x, y, width, height, fill } = props; 
-    // Minimum yükseklik vererek boş görünmesini engelliyoruz
-    return <rect x={x} y={y} width={width} height={Math.max(height, 4)} fill={fill} rx={2} />; 
+    return <rect x={x} y={y} width={width} height={Math.max(height, 2)} fill={fill} rx={2} />; 
 };
 
 // --- COMPONENTS ---
@@ -134,8 +134,11 @@ const MemeGenerator = ({ tokenImage, symbol }: { tokenImage: string, symbol: str
 };
 
 // --- MAIN PAGE ---
-export default function TradePage({ params }: { params: { id: string } }) {
-  const tokenAddress = params.id as `0x${string}`;
+export default function TradePage() {
+  const params = useParams();
+  const id = params?.id as string;
+  const tokenAddress = id ? (id as `0x${string}`) : "0x0000000000000000000000000000000000000000";
+
   const publicClient = usePublicClient(); 
   const { isConnected, address } = useAccount();
   const [isMounted, setIsMounted] = useState(false);
@@ -153,36 +156,46 @@ export default function TradePage({ params }: { params: { id: string } }) {
   const [sniperMode, setSniperMode] = useState(false);
   const [mevProtect, setMevProtect] = useState(false);
   const [priceAlert, setPriceAlert] = useState("");
+  
+  // TOAST REFERENCE (For Force Dismiss)
+  const toastId = useRef<string | null>(null);
 
-  // DATA STORAGE
-  const [chartData, setChartData] = useState<any[]>([]);
-  const [tradeHistory, setTradeHistory] = useState<any[]>([]);
+  // DATA STORAGE (DUAL STATE ARCHITECTURE)
+  const [localTrades, setLocalTrades] = useState<any[]>([]); // MY TRADES (LOCAL)
+  const [publicTrades, setPublicTrades] = useState<any[]>([]); // RPC TRADES (PUBLIC)
+  
+  const [localChart, setLocalChart] = useState<any[]>([]); // MY CHART (LOCAL)
+  const [publicChart, setPublicChart] = useState<any[]>([]); // RPC CHART (PUBLIC)
+
   const [holderList, setHolderList] = useState<any[]>([]);
   const processedTxHashes = useRef(new Set());
 
   // INIT LOAD (LOCAL STORAGE RECOVERY)
   useEffect(() => {
       setIsMounted(true);
-      if(typeof window !== 'undefined') {
+      if(typeof window !== 'undefined' && id) {
           try {
-              const savedTrades = localStorage.getItem(`trades_v4_${tokenAddress}`);
-              if(savedTrades) setTradeHistory(JSON.parse(savedTrades));
+              const key = id.toLowerCase();
+              const savedTrades = localStorage.getItem(`myTrades_v5_${key}`);
+              if(savedTrades) setLocalTrades(JSON.parse(savedTrades));
               
-              const savedChart = localStorage.getItem(`chart_v4_${tokenAddress}`);
-              if(savedChart) setChartData(JSON.parse(savedChart));
+              const savedChart = localStorage.getItem(`myChart_v5_${key}`);
+              if(savedChart) setLocalChart(JSON.parse(savedChart));
               
-              const savedHolders = localStorage.getItem(`holders_v4_${tokenAddress}`);
+              const savedHolders = localStorage.getItem(`holders_v5_${key}`);
               if(savedHolders) setHolderList(JSON.parse(savedHolders));
           } catch(e) {}
       }
-  }, [tokenAddress]);
+  }, [id]);
 
   // READ CONTRACTS
   const { data: maticBalance } = useBalance({ address: address });
   const { data: userTokenBalance, refetch: refetchTokenBalance } = useReadContract({ address: tokenAddress, abi: erc20Abi, functionName: "balanceOf", args: [address as `0x${string}`], query: { enabled: !!address, refetchInterval: 2000 } });
+  
   const { data: allowance, refetch: refetchAllowance } = useReadContract({ 
-      address: tokenAddress, abi: erc20Abi, functionName: "allowance", args: [address as `0x${string}`, CONTRACT_ADDRESS], query: { enabled: !!address, refetchInterval: 2000 } 
+      address: tokenAddress, abi: erc20Abi, functionName: "allowance", args: [address as `0x${string}`, CONTRACT_ADDRESS], query: { enabled: !!address } 
   });
+
   const { data: salesData, refetch: refetchSales } = useReadContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "sales", args: [tokenAddress], query: { refetchInterval: 2000 } });
   const { data: name } = useReadContract({ address: tokenAddress, abi: [{ name: "name", type: "function", inputs: [], outputs: [{ type: "string" }], stateMutability: "view" }], functionName: "name" });
   const { data: symbol } = useReadContract({ address: tokenAddress, abi: [{ name: "symbol", type: "function", inputs: [], outputs: [{ type: "string" }], stateMutability: "view" }], functionName: "symbol" });
@@ -197,7 +210,7 @@ export default function TradePage({ params }: { params: { id: string } }) {
   const tokenImage = getTokenImage(tokenAddress);
   const creatorAddress = salesData ? salesData[0] : "";
 
-  // PRICE & STATS ENGINE
+  // PRICE & MC ENGINE
   const collateralStr = salesData ? formatEther(salesData[1] as bigint) : "0";
   const tokensSoldStr = salesData ? formatEther(salesData[3] as bigint) : "0";
   const collateralVal = parseFloat(collateralStr);
@@ -206,17 +219,15 @@ export default function TradePage({ params }: { params: { id: string } }) {
   const progress = (tokensSoldVal / 1_000_000_000) * 100;
   const realProgress = Math.min(progress, 100);
   
-  // Fiyat Hesaplama
   const estimatedPrice = tokensSoldVal > 0 ? collateralVal / tokensSoldVal : 0.00000003;
-  const currentPrice = estimatedPrice;
+  
+  // COMBINE CHART DATA (Local + Public)
+  const combinedChart = [...publicChart, ...localChart].sort((a,b) => a.time - b.time);
+  const currentPrice = combinedChart.length > 0 ? combinedChart[combinedChart.length - 1].price : estimatedPrice;
   const marketCap = currentPrice * 1_000_000_000;
 
-  // Chart Fallback (Boşsa doldur)
-  useEffect(() => {
-      if (chartData.length === 0 && currentPrice > 0) {
-          setChartData([{ name: "Start", price: 0.00000003, fill: '#10b981' }, { name: "Now", price: currentPrice, fill: '#10b981' }]);
-      }
-  }, [currentPrice]);
+  // Combine Trade History (Local First)
+  const combinedHistory = [...localTrades, ...publicTrades].slice(0, 50);
 
   const needsApproval = activeTab === "sell" && (!allowance || (amount && parseFloat(amount) > parseFloat(formatEther(allowance as bigint))));
 
@@ -228,7 +239,7 @@ export default function TradePage({ params }: { params: { id: string } }) {
       try {
           setIsApproving(true);
           writeContract({ address: tokenAddress, abi: erc20Abi, functionName: "approve", args: [CONTRACT_ADDRESS, maxUint256] });
-          toast.loading("Approving...", { id: 'approve-tx' });
+          toastId.current = toast.loading("Approving...");
       } catch(e) { toast.error("Failed"); setIsApproving(false); }
   };
 
@@ -238,21 +249,17 @@ export default function TradePage({ params }: { params: { id: string } }) {
         const val = parseEther(amount);
         if (type === "burn") {
             writeContract({ address: tokenAddress, abi: erc20Abi, functionName: "transfer", args: ["0x000000000000000000000000000000000000dEaD", val], gas: BigInt(200000) });
-            toast.loading("Burning...", { id: 'tx' });
-            return;
-        }
-        if (type === "buy") {
+        } else if (type === "buy") {
              writeContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "buy", args: [tokenAddress], value: val, gas: BigInt(500000) });
-             toast.loading("Buying...", { id: 'tx' });
         } else if (type === "sell") {
              if(needsApproval) { toast.error("Approve first!"); return; }
              writeContract({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, functionName: "sell", args: [tokenAddress, val], gas: BigInt(500000) });
-             toast.loading("Selling...", { id: 'tx' });
         }
-    } catch(e) { toast.error("Transaction failed"); toast.dismiss('tx'); }
+        toastId.current = toast.loading(type === "buy" ? "Buying..." : "Selling...");
+    } catch(e) { toast.error("Transaction failed"); }
   };
 
-  // --- MANUAL UI UPDATE (OPTIMISTIC) ---
+  // --- MANUAL UI UPDATE (PERSISTENT) ---
   const updateLocalData = (type: "BUY" | "SELL" | "BURN", amt: string, price: number) => {
       const newTrade = {
           user: address || "You",
@@ -260,18 +267,81 @@ export default function TradePage({ params }: { params: { id: string } }) {
           maticAmount: (parseFloat(amt) * price).toFixed(4),
           tokenAmount: amt,
           price: price.toFixed(8),
-          time: new Date().toLocaleTimeString()
+          time: new Date().toLocaleTimeString(),
+          id: Date.now() // Unique ID
       };
       
-      const updatedHistory = [newTrade, ...tradeHistory];
-      const updatedChart = [...chartData, { name: "Now", price: price, fill: type === 'BUY' ? '#10b981' : '#ef4444' }];
-
-      setTradeHistory(updatedHistory);
-      setChartData(updatedChart);
+      const updatedLocalTrades = [newTrade, ...localTrades];
+      setLocalTrades(updatedLocalTrades);
       
-      localStorage.setItem(`trades_v4_${tokenAddress}`, JSON.stringify(updatedHistory));
-      localStorage.setItem(`chart_v4_${tokenAddress}`, JSON.stringify(updatedChart));
+      const candle = { name: "Now", price: price, fill: type === 'BUY' ? '#10b981' : '#ef4444' };
+      const updatedLocalChart = [...localChart, candle];
+      setLocalChart(updatedLocalChart);
+      
+      const key = tokenAddress.toLowerCase();
+      localStorage.setItem(`myTrades_v5_${key}`, JSON.stringify(updatedLocalTrades));
+      localStorage.setItem(`chart_v5_${key}`, JSON.stringify(updatedLocalChart));
   };
+
+  // DATA ENGINE (RPC Only)
+  const fetchDataEngine = async () => {
+    if (!publicClient) return;
+    try {
+      const blockNumber = await publicClient.getBlockNumber();
+      const fromBlock = blockNumber - 990n; 
+
+      const [buyLogs, sellLogs] = await Promise.all([
+        publicClient.getContractEvents({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, eventName: 'Buy', fromBlock }),
+        publicClient.getContractEvents({ address: CONTRACT_ADDRESS, abi: CONTRACT_ABI, eventName: 'Sell', fromBlock })
+      ]);
+      
+      const targetToken = tokenAddress.toLowerCase();
+      const relevantBuys = buyLogs.filter((l: any) => l.args.token.toLowerCase() === targetToken);
+      const relevantSells = sellLogs.filter((l: any) => l.args.token.toLowerCase() === targetToken);
+
+      const allEvents = [...relevantBuys.map(l => ({...l, type: "BUY"})), ...relevantSells.map(l => ({...l, type: "SELL"}))]
+        .sort((a, b) => Number(a.blockNumber) - Number(b.blockNumber));
+
+      if (allEvents.length === 0) return; 
+
+      const newTrades: any[] = [];
+      const newChart: any[] = [];
+      let lastP = 0.00000003;
+
+      allEvents.forEach((event: any) => {
+        const mVal = parseFloat(formatEther(event.args.amountMATIC || 0n));
+        const tVal = parseFloat(formatEther(event.args.amountTokens || 0n));
+        let price = tVal > 0 ? mVal / tVal : lastP;
+        
+        newTrades.unshift({ 
+            user: event.args.buyer || event.args.seller, 
+            type: event.type, 
+            maticAmount: mVal.toFixed(4), 
+            tokenAmount: tVal.toFixed(2), 
+            price: price.toFixed(8) 
+        });
+
+        newChart.push({ 
+            name: event.blockNumber.toString(), 
+            price: price, 
+            fill: event.type === 'BUY' ? '#10b981' : '#ef4444' 
+        });
+        lastP = price;
+      });
+
+      // ONLY UPDATE PUBLIC DATA (Don't touch local)
+      setPublicChart(newChart);
+      setPublicTrades(newTrades);
+
+    } catch (e) {}
+  };
+
+  useEffect(() => { 
+      setIsMounted(true); 
+      fetchDataEngine(); 
+      const interval = setInterval(fetchDataEngine, 10000); 
+      return () => clearInterval(interval); 
+  }, [tokenAddress, publicClient]); 
 
   // HOLDERS UPDATE
   useEffect(() => {
@@ -281,9 +351,7 @@ export default function TradePage({ params }: { params: { id: string } }) {
               const newHolder = { address: address, percentage: (myBalance / 1_000_000_000) * 100 };
               setHolderList(prev => {
                   const filtered = prev.filter(h => h.address !== address);
-                  const updated = [newHolder, ...filtered];
-                  localStorage.setItem(`holders_v4_${tokenAddress}`, JSON.stringify(updated));
-                  return updated;
+                  return [newHolder, ...filtered];
               });
           }
       }
@@ -295,20 +363,24 @@ export default function TradePage({ params }: { params: { id: string } }) {
 
   useEffect(() => { 
       if (isConfirmed) { 
+          // KILL ALL TOASTS
           toast.dismiss(); 
           toast.success("Transaction Confirmed!");
-          if(isApproving) { setIsApproving(false); refetchAllowance(); }
-          else { 
+          
+          if(isApproving) { 
+              setIsApproving(false); 
+              refetchAllowance(); 
+          } else { 
              if(activeTab === "buy") setShowConfetti(true);
              setAmount(""); 
              refetchSales(); 
              refetchTokenBalance(); 
-             // INSTANT UPDATE
+             // INSTANT LOCAL UPDATE
              updateLocalData(activeTab === "buy" ? "BUY" : "SELL", amount, currentPrice);
-             setTimeout(() => window.location.reload(), 2000);
           }
       } 
-      if(isPending || isConfirming) { const timer = setTimeout(() => toast.dismiss(), 15000); return () => clearTimeout(timer); }
+      // Force kill loading after 10s
+      if(isPending || isConfirming) { const timer = setTimeout(() => toast.dismiss(), 10000); return () => clearTimeout(timer); }
   }, [isConfirmed, isPending, isConfirming]);
 
   const handlePercentage = (percent: number) => {
@@ -365,9 +437,10 @@ export default function TradePage({ params }: { params: { id: string } }) {
             </div>
 
             <div className="border border-white/10 rounded-2xl p-5 h-[450px] bg-[#2d1b4e]/50 relative group">
+                <div className="absolute top-4 right-4 z-10"><button onClick={fetchDataEngine} className="p-2 bg-white/5 rounded-lg hover:bg-white/10"><RefreshCw size={14} /></button></div>
                 <div className="flex justify-between items-center mb-4"><div className="flex gap-4"><div className="text-lg font-bold">{currentPrice.toFixed(9)} MATIC</div><div className="text-lg font-bold text-[#FDDC11]">MC: {(marketCap).toLocaleString()} MATIC</div></div></div>
-                <ResponsiveContainer width="100%" height="90%"><ComposedChart data={chartData}><YAxis domain={['auto', 'auto']} hide /><Tooltip contentStyle={{ backgroundColor: '#181a20', border: '1px solid #333' }} /><Bar dataKey="price" shape={<CustomCandle />} isAnimationActive={false}>{chartData.map((e, i) => (<Cell key={i} fill={e.fill || '#10b981'} />))}</Bar></ComposedChart></ResponsiveContainer>
-                {chartData.length === 0 && <div className="absolute inset-0 flex items-center justify-center text-gray-600 text-sm">No trades yet. Chart waiting...</div>}
+                <ResponsiveContainer width="100%" height="90%"><ComposedChart data={combinedChart.length > 0 ? combinedChart : [{name:'Init', price: 0.00000003, fill:'#10b981'}]}><YAxis domain={['auto', 'auto']} hide /><Tooltip contentStyle={{ backgroundColor: '#181a20', border: '1px solid #333' }} /><Bar dataKey="price" shape={<CustomCandle />} isAnimationActive={false}>{combinedChart.map((e, i) => (<Cell key={i} fill={e.fill || '#10b981'} />))}</Bar></ComposedChart></ResponsiveContainer>
+                {combinedChart.length === 0 && <div className="absolute inset-0 flex items-center justify-center text-gray-600 text-sm">Ready to trade...</div>}
             </div>
 
             <div className="flex flex-col gap-4">
@@ -376,20 +449,20 @@ export default function TradePage({ params }: { params: { id: string } }) {
                     {bottomTab === "trades" && (
                         <div className="flex flex-col gap-1">
                             <div className="grid grid-cols-5 text-[10px] font-bold text-gray-500 uppercase px-3 pb-2"><div>User</div><div>Type</div><div>MATIC</div><div>Tokens</div><div className="text-right">Price</div></div>
-                            {tradeHistory.map((trade, i) => (
+                            {combinedHistory.map((trade, i) => (
                                 <div key={i} className="grid grid-cols-5 text-xs py-3 px-3 rounded-lg border-b border-white/5 hover:bg-white/5 transition-colors">
-                                    <div className="font-mono text-gray-400">{generateNickname(trade.user)}</div>
+                                    <div className="font-mono text-gray-400">{trade.user ? (trade.user.length > 10 ? `${trade.user.slice(0,6)}...` : trade.user) : "Anon"}</div>
                                     <div className={trade.type==="BUY"?"text-green-500 font-bold":"text-red-500 font-bold"}>{trade.type}</div>
                                     <div className="text-white">{trade.maticAmount}</div>
                                     <div className="text-white">{trade.tokenAmount}</div>
                                     <div className="text-right text-gray-500">{trade.price}</div>
                                 </div>
                             ))}
-                            {tradeHistory.length === 0 && <div className="text-center text-gray-500 py-10">No trades yet.</div>}
+                            {combinedHistory.length === 0 && <div className="text-center text-gray-500 py-10">No trades yet.</div>}
                         </div>
                     )}
                     {bottomTab === "chat" && <ChatBox tokenAddress={tokenAddress} creator={creatorAddress} />}
-                    {bottomTab === "holders" && (<div className="flex flex-col gap-2">{holderList.length > 0 ? holderList.map((h,i)=>(<div key={i} className="flex justify-between text-xs border-b border-white/5 pb-1"><span className="font-mono text-gray-400">{h.address.slice(0,6)}...</span><span className="text-white">{h.percentage.toFixed(2)}%</span></div>)) : <div className="text-center text-gray-500">Holders loading...</div>}</div>)}
+                    {bottomTab === "holders" && (<div className="flex flex-col gap-2">{holderList.length > 0 ? holderList.map((h,i)=>(<div key={i} className="flex justify-between text-xs border-b border-white/5 pb-1"><span className="font-mono text-gray-400">{h.address.slice(0,6)}...</span><span className="text-white">{h.percentage?.toFixed(2)}%</span></div>)) : <div className="text-center text-gray-500">Holders loading...</div>}</div>)}
                     {bottomTab === "bubbles" && <BubbleMap holders={holderList} />}
                     {bottomTab === "meme" && <MemeGenerator tokenImage={tokenImage} symbol={symbol?.toString() || "TKN"} />}
                 </div>
